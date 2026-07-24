@@ -5,10 +5,7 @@ import pandas as pd
 import io
 from src.ingestion.universal_parser import parse_user_driven_excel
 from src.ingestion.parsers.master_parser import ingest_master_list_excel
-from src.resolution.exact_matcher import process_exact_matches
-from src.resolution.candidate_generator import find_top_candidates
-from src.resolution.pre_processor import should_reject, create_rejection_decision
-from src.resolution.llm_resolver import resolve_candidates
+from src.pipeline import run_resolution_pipeline
 from src.core.config import config
 
 # --- PAGE SETUP ---
@@ -202,52 +199,38 @@ elif menu == "3. Run Pipeline":
                     unique_bls = {r.bill_of_lading: r for r in raw_records if r.bill_of_lading}.values()
                     bl_level_records = list(unique_bls)
 
-                    # 4. Run Exact Matcher
-                    exact_matches, unmatched_records = process_exact_matches(bl_level_records, master_json_path)
-
-                    # 5. Run Pre-Processor (Junk Filter)
-                    to_vector_search = []
-                    auto_rejected = []
-                    for record in unmatched_records:
-                        if should_reject(record.messy_party_name):
-                            auto_rejected.append(create_rejection_decision(record.messy_party_name))
-                        else:
-                            to_vector_search.append(record)
-
-                    # 6. Run Vector Search
-                    candidates, _ = find_top_candidates(to_vector_search, master_json_path)
-
-                    # --- DYNAMIC UI PREVIEW ---
+                    # --- EXECUTE EXTRACTED PIPELINE ---
                     ui_placeholder = st.empty()
-                    with ui_placeholder.container():
-                        st.info("✅ Deterministic matching complete! AI Resolution starting...")
-                        st.subheader("Deterministic Decisions")
-                        deterministic = exact_matches + auto_rejected
-                        if deterministic:
-                            st.dataframe([json.loads(d.model_dump_json()) for d in deterministic], use_container_width=True)
-                        st.subheader("Ambiguous Records (Waiting for AI Queue)")
-                        if candidates:
-                            st.dataframe([json.loads(c.model_dump_json()) for c in candidates], use_container_width=True)
+                    
+                    def pipeline_update_hook(status: str, data: dict):
+                        if status == "deterministic_complete":
+                            with ui_placeholder.container():
+                                st.info("✅ Deterministic matching complete! AI Resolution starting...")
+                                st.subheader("Deterministic Decisions")
+                                deterministic = data["exact_matches"] + data["auto_rejected"]
+                                if deterministic:
+                                    st.dataframe([json.loads(d.model_dump_json()) for d in deterministic], use_container_width=True)
+                                st.subheader("Ambiguous Records (Waiting for AI Queue)")
+                                if data["candidates"]:
+                                    st.dataframe([json.loads(c.model_dump_json()) for c in data["candidates"]], use_container_width=True)
+                        elif status == "llm_start":
+                            st.toast(f"🧠 Running AI Resolution on {data['count']} ambiguous records...")
+                        elif status == "pipeline_complete":
+                            ui_placeholder.empty()
 
-                    # 7. Run LLM Resolution
-                    llm_decisions = []
-                    if candidates:
-                        with st.spinner(f"🧠 Running AI Resolution on {len(candidates)} ambiguous records... (This may take a moment due to API rate limits)"):
-                            llm_decisions = resolve_candidates(candidates)
-
-                    # Clear the preview so the final results can render natively below
-                    ui_placeholder.empty()
-
-                    # Combine Results
-                    final_decisions = exact_matches + auto_rejected + llm_decisions
+                    results = run_resolution_pipeline(
+                        records=bl_level_records, 
+                        master_json_path=master_json_path,
+                        ui_callback=pipeline_update_hook
+                    )
                     
                     # Store results in session_state
                     st.session_state.bl_level_records = bl_level_records
-                    st.session_state.exact_matches = exact_matches
-                    st.session_state.auto_rejected = auto_rejected
-                    st.session_state.candidates = candidates
-                    st.session_state.llm_decisions = llm_decisions
-                    st.session_state.final_decisions = final_decisions
+                    st.session_state.exact_matches = results["exact_matches"]
+                    st.session_state.auto_rejected = results["auto_rejected"]
+                    st.session_state.candidates = results["candidates"]
+                    st.session_state.llm_decisions = results["llm_decisions"]
+                    st.session_state.final_decisions = results["final_decisions"]
                     st.session_state.pipeline_ran = True
                     
                     st.success("✅ Pipeline Complete!")
