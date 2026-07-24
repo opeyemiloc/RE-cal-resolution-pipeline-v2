@@ -52,26 +52,15 @@ business_logic:
     - "BANK"
     - "LOC"
     - "SAME AS"
+    - "SAME AS NOTIFY"
+    - "SAME AS NOTIFY PARTY"
   bank_keywords:
+    - "TO THE ORDER OF BANK OF "
+    - "TO THE ORDER OF "
+    - "TO ORDER OF "
+    - "ORDER OF "
     - "BANK"
-    - "TO THE ORDER"
     - "L/C"
     - "LETTER OF CREDIT"
     - "FINANCE"
-
-routing:
-  one:
-    - "navios"
-    - "o.n.e"
-    - "one nig"
-    - "one"
-  cosco:
-    - "cosco"
-    - "kota lagu"
-    - "coscocal"
-  hapag:
-    - "hapag"
-    - "hlc"
-    - "vancouver star"
-  msc:
-    - "msc"
+
