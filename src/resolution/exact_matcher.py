@@ -4,14 +4,12 @@ from src.core.models import ShippingRecord, LLMMatchDecision
 from src.resolution.normalizer import normalize_name
 from src.core.config import config
 
-# Note: normalizer.py already expands LTD->LIMITED, NIG->NIGERIA, etc.
-SUFFIX_WORDS = set(config['business_logic']['suffix_words'])
-
 def strip_trailing_suffixes(name: str) -> str:
     """
     Removes common corporate suffixes ONLY from the end of the brand name.
     Protects words if they are part of the core brand (e.g., 'INTERNATIONAL BREWERIES').
     """
+    suffix_words = set(config['business_logic']['suffix_words'])
     if not name:
         return ""
         
@@ -20,7 +18,7 @@ def strip_trailing_suffixes(name: str) -> str:
     # Keep popping words off the end as long as they are in our suffix list.
     # We require len(tokens) > 1 so we don't accidentally strip a company 
     # whose entire name is literally just a suffix word.
-    while len(tokens) > 1 and tokens[-1] in SUFFIX_WORDS:
+    while len(tokens) > 1 and tokens[-1] in suffix_words:
         tokens.pop()
         
     return " ".join(tokens)
