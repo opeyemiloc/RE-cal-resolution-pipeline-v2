@@ -405,6 +405,53 @@ elif menu == "3. Run Pipeline":
         col4.metric("🤖 AI Matches", len(st.session_state.llm_decisions))
         st.divider()
 
+        st.subheader("🔍 Click a row in any table below to view its original manifest records")
+
+        def show_drilldown(selection_event, dataframe, key_col):
+            if selection_event and selection_event.selection.rows:
+                idx = selection_event.selection.rows[0]
+                messy_name = dataframe.iloc[idx][key_col]
+                matching_records = [r for r in st.session_state.bl_level_records if r.messy_party_name == messy_name]
+                df_drill = pd.DataFrame([{
+                    "Bill of Lading": r.bill_of_lading,
+                    "Container": r.container_number,
+                    "Raw Consignee": r.consignee_name,
+                    "Raw Notify": r.notify_party,
+                    "Product": r.product_description
+                } for r in matching_records])
+                st.info(f"**Drill Down for:** `{messy_name}`")
+                st.dataframe(df_drill, use_container_width=True)
+
+        # 1. Deterministic
+        st.subheader("Deterministic Decisions")
+        deterministic = st.session_state.exact_matches + st.session_state.auto_rejected
+        if deterministic:
+            df_det = pd.DataFrame([json.loads(d.model_dump_json()) for d in deterministic])
+            event_det = st.dataframe(df_det, use_container_width=True, selection_mode="single-row", on_select="rerun")
+            show_drilldown(event_det, df_det, "original_messy_name")
+        else:
+            st.info("No deterministic decisions available.")
+        
+        # 2. Ambiguous
+        st.subheader("Ambiguous Records")
+        if st.session_state.candidates:
+            df_amb = pd.DataFrame([json.loads(c.model_dump_json()) for c in st.session_state.candidates])
+            event_amb = st.dataframe(df_amb, use_container_width=True, selection_mode="single-row", on_select="rerun")
+            show_drilldown(event_amb, df_amb, "messy_party_name")
+        else:
+            st.info("No ambiguous records.")
+            
+        # 3. AI Results
+        st.subheader("AI Results")
+        if st.session_state.get('llm_decisions'):
+            df_ai = pd.DataFrame([json.loads(d.model_dump_json()) for d in st.session_state.llm_decisions])
+            event_ai = st.dataframe(df_ai, use_container_width=True, selection_mode="single-row", on_select="rerun")
+            show_drilldown(event_ai, df_ai, "original_messy_name")
+        else:
+            st.info("No AI results available.")
+            df_ai = pd.DataFrame()
+
+
         # Generate Base Excel Data
         excel_data = []
         for d in st.session_state.exact_matches:
@@ -438,18 +485,16 @@ elif menu == "3. Run Pipeline":
             df_report.to_excel(writer, index=False, sheet_name='Resolution Results')
         
         # --- HUMAN IN THE LOOP (AI QUEUE) ---
+        st.divider()
         st.subheader("⚠️ AI Review Queue")
         st.info("Edit the 'Resolved Master Name' if the AI was wrong. Check 'Approve for Learning' to add the rule to your workspace so the AI remembers it next time!")
         
-        llm_json = [json.loads(d.model_dump_json()) for d in st.session_state.llm_decisions]
-        df_ai = pd.DataFrame(llm_json)
-        
         if not df_ai.empty:
-            df_ai = df_ai[["original_messy_name", "resolved_master_name", "confidence_score", "reasoning", "matched"]]
+            df_ai_filtered = df_ai[["original_messy_name", "resolved_master_name", "confidence_score", "reasoning", "matched"]]
             
             # Split into Needs Review vs High Confidence
-            df_needs_review = df_ai[df_ai["confidence_score"] < 95].copy()
-            df_high_conf = df_ai[df_ai["confidence_score"] >= 95].copy()
+            df_needs_review = df_ai_filtered[df_ai_filtered["confidence_score"] < 95].copy()
+            df_high_conf = df_ai_filtered[df_ai_filtered["confidence_score"] >= 95].copy()
             
             # Setup columns for the data editor
             if not df_needs_review.empty:
@@ -508,28 +553,6 @@ elif menu == "3. Run Pipeline":
                 current_settings, 
                 run_stats
             )
-            
-            # --- DRILL DOWN FEATURE ---
-            st.divider()
-            st.subheader("🔍 Record Drill-Down")
-            st.info("Select a messy name from the results above to view its original manifest rows (Bill of Lading, Container, etc.)")
-            
-            # Extract all unique messy names that were processed
-            all_messy_names = sorted(list(set([r.messy_party_name for r in st.session_state.bl_level_records if r.messy_party_name])))
-            selected_name = st.selectbox("Select Messy Name to Inspect", [""] + all_messy_names)
-            
-            if selected_name:
-                matching_records = [r for r in st.session_state.bl_level_records if r.messy_party_name == selected_name]
-                df_drill = pd.DataFrame([{
-                    "Bill of Lading": r.bill_of_lading,
-                    "Container": r.container_number,
-                    "Raw Consignee": r.consignee_name,
-                    "Raw Notify": r.notify_party,
-                    "Product": r.product_description
-                } for r in matching_records])
-                
-                st.write(f"**Found {len(matching_records)} original row(s) for:** `{selected_name}`")
-                st.dataframe(df_drill, use_container_width=True)
             
             st.divider()
             col_d1, col_d2 = st.columns(2)
