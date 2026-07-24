@@ -40,13 +40,33 @@ if 'product_col' not in st.session_state: st.session_state.product_col = ""
 if 'salvage_notify' not in st.session_state: st.session_state.salvage_notify = True
 if 'strip_bank_prefixes' not in st.session_state: st.session_state.strip_bank_prefixes = True
 
+# Navigation state
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = "1. File Uploads"
+
+def set_page(page_name):
+    st.session_state.current_page = page_name
+
 # --- SIDEBAR NAVIGATION ---
 with st.sidebar:
     st.title("Navigation")
-    menu = st.radio(
-        "Menu",
-        ["1. File Uploads", "2. Data Configuration", "3. Run Pipeline"]
-    )
+    
+    st.button("📁 1. File Uploads", 
+              use_container_width=True, 
+              type="primary" if st.session_state.current_page == "1. File Uploads" else "secondary",
+              on_click=set_page, args=("1. File Uploads",))
+              
+    st.button("⚙️ 2. Data Configuration", 
+              use_container_width=True, 
+              type="primary" if st.session_state.current_page == "2. Data Configuration" else "secondary",
+              on_click=set_page, args=("2. Data Configuration",))
+              
+    st.button("🚀 3. Run Pipeline", 
+              use_container_width=True, 
+              type="primary" if st.session_state.current_page == "3. Run Pipeline" else "secondary",
+              on_click=set_page, args=("3. Run Pipeline",))
+
+menu = st.session_state.current_page
 
 # ==========================================
 # SECTION 1: FILE UPLOADS
