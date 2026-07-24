@@ -37,6 +37,17 @@ if 'product_col' not in st.session_state: st.session_state.product_col = ""
 if 'salvage_notify' not in st.session_state: st.session_state.salvage_notify = True
 if 'strip_bank_prefixes' not in st.session_state: st.session_state.strip_bank_prefixes = True
 
+if 'master_name_col' not in st.session_state: st.session_state.master_name_col = ""
+if 'master_alias_col' not in st.session_state: st.session_state.master_alias_col = ""
+
+# Advanced Config State
+if 'adv_vector_threshold' not in st.session_state: st.session_state.adv_vector_threshold = config['thresholds']['vector_quality_threshold']
+if 'adv_top_k' not in st.session_state: st.session_state.adv_top_k = config['thresholds'].get('vector_k_candidates', 3)
+if 'adv_suffix_words' not in st.session_state: st.session_state.adv_suffix_words = ", ".join(config['business_logic']['suffix_words'])
+if 'adv_junk_patterns' not in st.session_state: st.session_state.adv_junk_patterns = ", ".join(config['business_logic']['junk_patterns'])
+if 'adv_bank_keywords' not in st.session_state: st.session_state.adv_bank_keywords = ", ".join(config['business_logic']['bank_keywords'])
+if 'adv_llm_model' not in st.session_state: st.session_state.adv_llm_model = config['llm'].get('gemini', {}).get('model_name', 'gemini-3.6-flash')
+
 # Navigation state
 if 'current_page' not in st.session_state:
     st.session_state.current_page = "1. File Uploads"
@@ -62,8 +73,17 @@ with st.sidebar:
               use_container_width=True, 
               type="primary" if st.session_state.current_page == "3. Run Pipeline" else "secondary",
               on_click=set_page, args=("3. Run Pipeline",))
+              
+    st.button("🛠️ 4. Advanced Settings", 
+              use_container_width=True, 
+              type="primary" if st.session_state.current_page == "4. Advanced Settings" else "secondary",
+              on_click=set_page, args=("4. Advanced Settings",))
 
 menu = st.session_state.current_page
+
+# Helper to safely get index
+def get_idx(options, val):
+    return options.index(val) if val in options else 0
 
 # ==========================================
 # SECTION 1: FILE UPLOADS
@@ -92,17 +112,36 @@ if menu == "1. File Uploads":
 elif menu == "2. Data Configuration":
     st.header("⚙️ 2. Data Configuration & Mapping")
     
+    # 1. Master List Config
+    if st.session_state.master_file_bytes:
+        st.subheader("Master List Column Mapping")
+        try:
+            master_io = io.BytesIO(st.session_state.master_file_bytes)
+            df_master_preview = pd.read_excel(master_io, nrows=3)
+            master_cols = [str(c) for c in df_master_preview.columns.tolist()]
+            
+            col_ma1, col_ma2 = st.columns(2)
+            with col_ma1:
+                st.session_state.master_name_col = st.selectbox("Account Name Column (Required)", [""] + master_cols, index=get_idx([""] + master_cols, st.session_state.master_name_col))
+            with col_ma2:
+                st.session_state.master_alias_col = st.selectbox("Alias Name Column (Optional)", ["None"] + master_cols, index=get_idx(["None"] + master_cols, st.session_state.master_alias_col))
+        except Exception as e:
+            st.error(f"Error reading master list preview: {e}")
+            
+        st.divider()
+
+    # 2. Manifest Config
     if not st.session_state.manifest_file_bytes:
-        st.warning("⚠️ Please upload a Shipping Manifest in the 'File Uploads' section first.")
+        st.warning("⚠️ Please upload a Shipping Manifest in the 'File Uploads' section.")
     else:
-        st.subheader("Structural Configuration")
+        st.subheader("Manifest Structural Configuration")
         col_s1, col_s2, col_s3 = st.columns(3)
         
         manifest_io = io.BytesIO(st.session_state.manifest_file_bytes)
         excel_file = pd.ExcelFile(manifest_io)
         
         with col_s1:
-            st.session_state.sheet_name = st.selectbox("Target Sheet", excel_file.sheet_names, index=excel_file.sheet_names.index(st.session_state.sheet_name) if st.session_state.sheet_name in excel_file.sheet_names else 0)
+            st.session_state.sheet_name = st.selectbox("Target Sheet", excel_file.sheet_names, index=get_idx(excel_file.sheet_names, st.session_state.sheet_name))
         with col_s2:
             st.session_state.header_row_index = int(st.number_input("Header Row Index (0-indexed)", min_value=0, value=st.session_state.header_row_index))
         with col_s3:
@@ -111,7 +150,7 @@ elif menu == "2. Data Configuration":
             st.session_state.skip_sub_header = st.checkbox("Skip Sub-header Row", value=st.session_state.skip_sub_header)
         
         st.divider()
-        st.subheader("Dynamic Column Mapping")
+        st.subheader("Manifest Column Mapping")
         try:
             manifest_io.seek(0)
             df_preview = pd.read_excel(manifest_io, sheet_name=st.session_state.sheet_name, header=st.session_state.header_row_index, nrows=5)
@@ -119,10 +158,6 @@ elif menu == "2. Data Configuration":
             
             st.write("**Live Preview:**")
             st.dataframe(df_preview.head(3), use_container_width=True)
-            
-            # Helper to safely get index
-            def get_idx(options, val):
-                return options.index(val) if val in options else 0
 
             col_m1, col_m2, col_m3 = st.columns(3)
             with col_m1:
@@ -147,6 +182,59 @@ elif menu == "2. Data Configuration":
 
 
 # ==========================================
+# SECTION 4: ADVANCED SETTINGS
+# ==========================================
+elif menu == "4. Advanced Settings":
+    st.header("🛠️ 4. Advanced Settings (Control Center)")
+    
+    tab1, tab2, tab3 = st.tabs(["🎯 Matching & Threshold Tuning", "🧹 Business Logic & Cleaning", "🤖 LLM Settings"])
+    
+    with tab1:
+        st.subheader("Entity Resolution Thresholds")
+        st.session_state.adv_vector_threshold = st.slider(
+            "Vector Similarity Score Threshold", 
+            min_value=0.0, max_value=1.0, 
+            value=float(st.session_state.adv_vector_threshold), 
+            step=0.05, 
+            help="Controls FAISS strictness. Lower is stricter. Candidates with distance > threshold are rejected."
+        )
+        st.session_state.adv_top_k = st.number_input(
+            "Top-K Candidates", 
+            min_value=1, max_value=10, 
+            value=int(st.session_state.adv_top_k), 
+            help="How many candidate matches are retrieved from the Master List for LLM evaluation."
+        )
+        
+    with tab2:
+        st.subheader("Dynamic Cleaning Rules")
+        st.info("Enter comma-separated values.")
+        st.session_state.adv_suffix_words = st.text_area(
+            "Custom Suffix Removal List", 
+            value=st.session_state.adv_suffix_words, 
+            help="Legal suffixes stripped during normalization (e.g. LTD, PLC, INC, LIMITED, ENTERPRISES)."
+        )
+        st.session_state.adv_junk_patterns = st.text_area(
+            "Custom Junk Phrase Filter", 
+            value=st.session_state.adv_junk_patterns, 
+            help="Phrases that trigger automatic 'Junk/Unusable Name' rejection (e.g., TO ORDER, SAME AS NOTIFY)."
+        )
+        st.session_state.adv_bank_keywords = st.text_area(
+            "Custom Bank Prefix Cleaning", 
+            value=st.session_state.adv_bank_keywords, 
+            help="Banking phrases to strip out before matching (e.g., TO THE ORDER OF, LETTER OF CREDIT)."
+        )
+        
+    with tab3:
+        st.subheader("AI Model Selection")
+        models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
+        st.session_state.adv_llm_model = st.selectbox(
+            "Select LLM", 
+            models, 
+            index=get_idx(models, st.session_state.adv_llm_model)
+        )
+
+
+# ==========================================
 # SECTION 3: RUN PIPELINE
 # ==========================================
 elif menu == "3. Run Pipeline":
@@ -162,6 +250,17 @@ elif menu == "3. Run Pipeline":
         if run_btn:
             with st.spinner("Processing pipeline..."):
                 try:
+                    # --- INJECT CUSTOM USER CONFIGURATIONS ---
+                    config['thresholds']['vector_quality_threshold'] = st.session_state.adv_vector_threshold
+                    config['thresholds']['vector_k_candidates'] = st.session_state.adv_top_k
+                    config['business_logic']['suffix_words'] = [s.strip() for s in st.session_state.adv_suffix_words.split(",") if s.strip()]
+                    config['business_logic']['junk_patterns'] = [s.strip() for s in st.session_state.adv_junk_patterns.split(",") if s.strip()]
+                    config['business_logic']['bank_keywords'] = [s.strip() for s in st.session_state.adv_bank_keywords.split(",") if s.strip()]
+                    
+                    if 'gemini' not in config['llm']: config['llm']['gemini'] = {}
+                    config['llm']['gemini']['model_name'] = st.session_state.adv_llm_model
+                    config['llm']['provider'] = 'gemini'
+                    
                     # 1. Save uploaded files to the input directory temporarily
                     os.makedirs(config['paths']['input_dir'], exist_ok=True)
                     
@@ -173,9 +272,14 @@ elif menu == "3. Run Pipeline":
                     with open(manifest_path, "wb") as f:
                         f.write(st.session_state.manifest_file_bytes)
 
-                    # 2. Run Master Parser
+                    # 2. Run Master Parser (With User Mapping)
                     master_json_path = config['paths']['master_json']
-                    ingest_master_list_excel(master_path, master_json_path)
+                    ingest_master_list_excel(
+                        excel_path=master_path, 
+                        output_json_path=master_json_path,
+                        name_col=st.session_state.master_name_col if st.session_state.master_name_col != "None" else None,
+                        alias_col=st.session_state.master_alias_col if st.session_state.master_alias_col != "None" else None
+                    )
 
                     # 3. Parse Manifest & Extract Unique BLs
                     column_mapping = {
@@ -214,7 +318,7 @@ elif menu == "3. Run Pipeline":
                                 if data["candidates"]:
                                     st.dataframe([json.loads(c.model_dump_json()) for c in data["candidates"]], use_container_width=True)
                         elif status == "llm_start":
-                            st.toast(f"🧠 Running AI Resolution on {data['count']} ambiguous records...")
+                            st.toast(f"🧠 Running AI Resolution on {data['count']} ambiguous records using {st.session_state.adv_llm_model}...")
                         elif status == "pipeline_complete":
                             ui_placeholder.empty()
 
