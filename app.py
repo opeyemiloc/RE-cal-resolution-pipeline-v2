@@ -436,7 +436,7 @@ elif menu == "3. Run Pipeline":
         if st.session_state.candidates:
             df_amb = pd.DataFrame([json.loads(c.model_dump_json()) for c in st.session_state.candidates])
             event_amb = st.dataframe(df_amb, use_container_width=True, selection_mode="single-row", on_select="rerun")
-            show_drilldown(event_amb, df_amb, "messy_party_name")
+            show_drilldown(event_amb, df_amb, "messy_name")
         else:
             st.info("No ambiguous records.")
             
