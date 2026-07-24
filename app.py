@@ -366,13 +366,44 @@ elif menu == "3. Run Pipeline":
         if final_json:
             st.dataframe(final_json, use_container_width=True)
             
-            # Download Button
-            json_str = json.dumps(final_json, indent=2)
+            # --- Excel Generation ---
+            excel_data = []
+            for d in st.session_state.exact_matches:
+                excel_data.append({
+                    "Original Messy Name": d.original_messy_name,
+                    "Resolved Master Name": d.resolved_master_name,
+                    "Resolution Type": "Exact Match",
+                    "Confidence Score": d.confidence_score,
+                    "Reasoning": d.reasoning
+                })
+            for d in st.session_state.auto_rejected:
+                excel_data.append({
+                    "Original Messy Name": d.original_messy_name,
+                    "Resolved Master Name": d.resolved_master_name,
+                    "Resolution Type": "Junk Filter",
+                    "Confidence Score": d.confidence_score,
+                    "Reasoning": d.reasoning
+                })
+            for d in st.session_state.llm_decisions:
+                excel_data.append({
+                    "Original Messy Name": d.original_messy_name,
+                    "Resolved Master Name": d.resolved_master_name,
+                    "Resolution Type": "AI Model",
+                    "Confidence Score": d.confidence_score,
+                    "Reasoning": d.reasoning
+                })
+                
+            df_report = pd.DataFrame(excel_data)
+            
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_report.to_excel(writer, index=False, sheet_name='Resolution Results')
+            
             st.download_button(
-                label="📥 Download JSON Results",
-                data=json_str,
-                file_name="pipeline_results.json",
-                mime="application/json",
+                label="📥 Download Excel Report",
+                data=buffer.getvalue(),
+                file_name="resolution_report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary"
             )
         else:
