@@ -7,6 +7,7 @@ from src.ingestion.universal_parser import parse_user_driven_excel
 from src.ingestion.parsers.master_parser import ingest_master_list_excel
 from src.pipeline import run_resolution_pipeline
 from src.core.config import config
+from src.workspace import create_empty_workspace_template, load_workspace, update_workspace
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Logistics AI Matcher", page_icon="🚢", layout="wide")
@@ -24,6 +25,12 @@ if 'master_file_bytes' not in st.session_state:
 if 'manifest_file_bytes' not in st.session_state:
     st.session_state.manifest_file_bytes = None
     st.session_state.manifest_file_name = None
+if 'workspace_bytes' not in st.session_state:
+    st.session_state.workspace_bytes = None
+if 'workspace_name' not in st.session_state:
+    st.session_state.workspace_name = None
+if 'workspace_aliases' not in st.session_state:
+    st.session_state.workspace_aliases = {}
     
 # Config state
 if 'sheet_name' not in st.session_state: st.session_state.sheet_name = 0
@@ -91,19 +98,57 @@ def get_idx(options, val):
 if menu == "1. File Uploads":
     st.header("📁 1. File Uploads")
     
-    master_file = st.file_uploader("Upload Master Accounts (Excel)", type=["xlsx"])
-    if master_file:
-        st.session_state.master_file_bytes = master_file.getvalue()
-        st.session_state.master_file_name = master_file.name
-    elif st.session_state.master_file_name:
-        st.success(f"Loaded: {st.session_state.master_file_name}")
-        
-    manifest_file = st.file_uploader("Upload Shipping Manifest (Excel)", type=["xlsx"])
-    if manifest_file:
-        st.session_state.manifest_file_bytes = manifest_file.getvalue()
-        st.session_state.manifest_file_name = manifest_file.name
-    elif st.session_state.manifest_file_name:
-        st.success(f"Loaded: {st.session_state.manifest_file_name}")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.subheader("1. Master List")
+        master_file = st.file_uploader("Upload Master Accounts (Excel)", type=["xlsx"])
+        if master_file:
+            st.session_state.master_file_bytes = master_file.getvalue()
+            st.session_state.master_file_name = master_file.name
+        elif st.session_state.master_file_name:
+            st.success(f"Loaded: {st.session_state.master_file_name}")
+            
+    with col2:
+        st.subheader("2. Shipping Manifest")
+        manifest_file = st.file_uploader("Upload Shipping Manifest (Excel)", type=["xlsx"])
+        if manifest_file:
+            st.session_state.manifest_file_bytes = manifest_file.getvalue()
+            st.session_state.manifest_file_name = manifest_file.name
+        elif st.session_state.manifest_file_name:
+            st.success(f"Loaded: {st.session_state.manifest_file_name}")
+
+    with col3:
+        st.subheader("3. Portable Workspace (Optional)")
+        workspace_file = st.file_uploader("Upload Workspace (Excel)", type=["xlsx"])
+        if workspace_file:
+            st.session_state.workspace_bytes = workspace_file.getvalue()
+            st.session_state.workspace_name = workspace_file.name
+            
+            # Extract aliases and settings automatically
+            aliases, settings, _ = load_workspace(st.session_state.workspace_bytes)
+            st.session_state.workspace_aliases = aliases
+            if settings:
+                if "vector_threshold" in settings: st.session_state.adv_vector_threshold = float(settings["vector_threshold"])
+                if "top_k" in settings: st.session_state.adv_top_k = int(settings["top_k"])
+                if "suffix_words" in settings: st.session_state.adv_suffix_words = str(settings["suffix_words"])
+                if "junk_patterns" in settings: st.session_state.adv_junk_patterns = str(settings["junk_patterns"])
+                if "bank_keywords" in settings: st.session_state.adv_bank_keywords = str(settings["bank_keywords"])
+                if "llm_model" in settings: st.session_state.adv_llm_model = str(settings["llm_model"])
+                st.toast("✅ Workspace loaded successfully! Settings and Aliases applied.")
+                
+        elif st.session_state.workspace_name:
+            st.success(f"Loaded: {st.session_state.workspace_name}")
+            st.info(f"Active Aliases: {len(st.session_state.workspace_aliases)}")
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button(
+            label="📥 Download Empty Workspace Template",
+            data=create_empty_workspace_template(),
+            file_name="Workspace_Template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Download a clean workspace file to start saving aliases and settings."
+        )
 
 
 # ==========================================
@@ -324,13 +369,14 @@ elif menu == "3. Run Pipeline":
                                 if data["candidates"]:
                                     st.dataframe([json.loads(c.model_dump_json()) for c in data["candidates"]], use_container_width=True)
                         elif status == "llm_start":
-                            st.toast(f"🧠 Running AI Resolution on {data['count']} ambiguous records using {st.session_state.adv_llm_model}...")
+                            st.toast(f"🧠 Running AI Resolution on {data['count']} ambiguous records...")
                         elif status == "pipeline_complete":
                             ui_placeholder.empty()
 
                     results = run_resolution_pipeline(
                         records=bl_level_records, 
                         master_json_path=master_json_path,
+                        custom_aliases=st.session_state.workspace_aliases,
                         ui_callback=pipeline_update_hook
                     )
                     
@@ -347,58 +393,166 @@ elif menu == "3. Run Pipeline":
                 except Exception as e:
                     st.error(f"Pipeline failed: {str(e)}")
 
-    # --- DISPLAY RESULTS ---
+    # --- DISPLAY RESULTS & WORKSPACE LEARNING ---
     if st.session_state.get('pipeline_ran', False):
-        st.header("📊 Pipeline Analytics")
+        st.header("📊 Pipeline Analytics & Active Learning")
         
         # Metrics Dashboard
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total Unique BLs", len(st.session_state.bl_level_records))
         col2.metric("🟢 Exact Matches", len(st.session_state.exact_matches))
         col3.metric("🔴 Auto-Rejected (Junk)", len(st.session_state.auto_rejected))
-        col4.metric("🟡 Sent to AI Queue", len(st.session_state.candidates), help="Ambiguous names requiring Vector Search/LLM.")
-
+        col4.metric("🤖 AI Matches", len(st.session_state.llm_decisions))
         st.divider()
 
-        # 1. Final
-        st.subheader("Final Decisions")
-        final_json = [json.loads(d.model_dump_json()) for d in st.session_state.final_decisions]
-        if final_json:
-            st.dataframe(final_json, use_container_width=True)
+        # Generate Base Excel Data
+        excel_data = []
+        for d in st.session_state.exact_matches:
+            excel_data.append({
+                "Original Messy Name": d.original_messy_name,
+                "Resolved Master Name": d.resolved_master_name,
+                "Resolution Type": "Exact Match",
+                "Confidence Score": d.confidence_score,
+                "Reasoning": d.reasoning
+            })
+        for d in st.session_state.auto_rejected:
+            excel_data.append({
+                "Original Messy Name": d.original_messy_name,
+                "Resolved Master Name": d.resolved_master_name,
+                "Resolution Type": "Junk Filter",
+                "Confidence Score": d.confidence_score,
+                "Reasoning": d.reasoning
+            })
+        for d in st.session_state.llm_decisions:
+            excel_data.append({
+                "Original Messy Name": d.original_messy_name,
+                "Resolved Master Name": d.resolved_master_name,
+                "Resolution Type": "AI Model",
+                "Confidence Score": d.confidence_score,
+                "Reasoning": d.reasoning
+            })
             
-            # --- Excel Generation ---
-            excel_data = []
-            for d in st.session_state.exact_matches:
-                excel_data.append({
-                    "Original Messy Name": d.original_messy_name,
-                    "Resolved Master Name": d.resolved_master_name,
-                    "Resolution Type": "Exact Match",
-                    "Confidence Score": d.confidence_score,
-                    "Reasoning": d.reasoning
-                })
-            for d in st.session_state.auto_rejected:
-                excel_data.append({
-                    "Original Messy Name": d.original_messy_name,
-                    "Resolved Master Name": d.resolved_master_name,
-                    "Resolution Type": "Junk Filter",
-                    "Confidence Score": d.confidence_score,
-                    "Reasoning": d.reasoning
-                })
-            for d in st.session_state.llm_decisions:
-                excel_data.append({
-                    "Original Messy Name": d.original_messy_name,
-                    "Resolved Master Name": d.resolved_master_name,
-                    "Resolution Type": "AI Model",
-                    "Confidence Score": d.confidence_score,
-                    "Reasoning": d.reasoning
-                })
+        df_report = pd.DataFrame(excel_data)
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df_report.to_excel(writer, index=False, sheet_name='Resolution Results')
+        
+        # --- HUMAN IN THE LOOP (AI QUEUE) ---
+        st.subheader("⚠️ AI Review Queue")
+        st.info("Edit the 'Resolved Master Name' if the AI was wrong. Check 'Approve for Learning' to add the rule to your workspace so the AI remembers it next time!")
+        
+        llm_json = [json.loads(d.model_dump_json()) for d in st.session_state.llm_decisions]
+        df_ai = pd.DataFrame(llm_json)
+        
+        if not df_ai.empty:
+            df_ai = df_ai[["original_messy_name", "resolved_master_name", "confidence_score", "reasoning", "matched"]]
+            
+            # Split into Needs Review vs High Confidence
+            df_needs_review = df_ai[df_ai["confidence_score"] < 95].copy()
+            df_high_conf = df_ai[df_ai["confidence_score"] >= 95].copy()
+            
+            # Setup columns for the data editor
+            if not df_needs_review.empty:
+                df_needs_review.insert(0, "✅ Approve for Learning", False)
+                st.markdown("**Needs Review (Confidence < 95%)**")
+                edited_needs_review = st.data_editor(
+                    df_needs_review,
+                    hide_index=True,
+                    disabled=["original_messy_name", "confidence_score", "reasoning", "matched"],
+                    use_container_width=True
+                )
+            else:
+                edited_needs_review = pd.DataFrame()
                 
-            df_report = pd.DataFrame(excel_data)
+            if not df_high_conf.empty:
+                df_high_conf.insert(0, "✅ Approve for Learning", True)
+                st.markdown("**High Confidence (Confidence ≥ 95%)**")
+                edited_high_conf = st.data_editor(
+                    df_high_conf,
+                    hide_index=True,
+                    disabled=["original_messy_name", "confidence_score", "reasoning", "matched"],
+                    use_container_width=True
+                )
+            else:
+                edited_high_conf = pd.DataFrame()
+                
+            # Compile approved aliases
+            approved_aliases = {}
+            for df_edited in [edited_needs_review, edited_high_conf]:
+                if not df_edited.empty:
+                    approved_rows = df_edited[df_edited["✅ Approve for Learning"] == True]
+                    for _, row in approved_rows.iterrows():
+                        approved_aliases[row["original_messy_name"]] = row["resolved_master_name"]
             
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df_report.to_excel(writer, index=False, sheet_name='Resolution Results')
+            # Capture current settings
+            current_settings = {
+                "vector_threshold": st.session_state.adv_vector_threshold,
+                "top_k": st.session_state.adv_top_k,
+                "suffix_words": st.session_state.adv_suffix_words,
+                "junk_patterns": st.session_state.adv_junk_patterns,
+                "bank_keywords": st.session_state.adv_bank_keywords,
+                "llm_model": st.session_state.adv_llm_model
+            }
             
+            run_stats = {
+                "Total Records": len(st.session_state.bl_level_records),
+                "Exact Matches": len(st.session_state.exact_matches),
+                "Auto Rejected": len(st.session_state.auto_rejected),
+                "AI Matches": len(st.session_state.llm_decisions)
+            }
+            
+            # Create updated workspace file
+            updated_workspace_bytes = update_workspace(
+                st.session_state.workspace_bytes, 
+                approved_aliases, 
+                current_settings, 
+                run_stats
+            )
+            
+            # --- DRILL DOWN FEATURE ---
+            st.divider()
+            st.subheader("🔍 Record Drill-Down")
+            st.info("Select a messy name from the results above to view its original manifest rows (Bill of Lading, Container, etc.)")
+            
+            # Extract all unique messy names that were processed
+            all_messy_names = sorted(list(set([r.messy_party_name for r in st.session_state.bl_level_records if r.messy_party_name])))
+            selected_name = st.selectbox("Select Messy Name to Inspect", [""] + all_messy_names)
+            
+            if selected_name:
+                matching_records = [r for r in st.session_state.bl_level_records if r.messy_party_name == selected_name]
+                df_drill = pd.DataFrame([{
+                    "Bill of Lading": r.bill_of_lading,
+                    "Container": r.container_number,
+                    "Raw Consignee": r.consignee_name,
+                    "Raw Notify": r.notify_party,
+                    "Product": r.product_description
+                } for r in matching_records])
+                
+                st.write(f"**Found {len(matching_records)} original row(s) for:** `{selected_name}`")
+                st.dataframe(df_drill, use_container_width=True)
+            
+            st.divider()
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                st.download_button(
+                    label="📥 Download Excel Report (Current Run)",
+                    data=buffer.getvalue(),
+                    file_name="resolution_report.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            with col_d2:
+                st.download_button(
+                    label=f"💾 Save & Download Updated Workspace ({len(approved_aliases)} New Aliases)",
+                    data=updated_workspace_bytes,
+                    file_name="Workspace_Updated.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    help="Downloads the Portable Brain containing your settings, run history, and the new aliases you approved.",
+                    use_container_width=True
+                )
+        else:
+            st.info("No AI results to review.")
             st.download_button(
                 label="📥 Download Excel Report",
                 data=buffer.getvalue(),
@@ -406,30 +560,3 @@ elif menu == "3. Run Pipeline":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary"
             )
-        else:
-            st.info("No decisions available.")
-
-        # 2. Deterministic
-        st.subheader("Deterministic Decisions")
-        deterministic = st.session_state.exact_matches + st.session_state.auto_rejected
-        if deterministic:
-            det_json = [json.loads(d.model_dump_json()) for d in deterministic]
-            st.dataframe(det_json, use_container_width=True)
-        else:
-            st.info("No deterministic decisions available.")
-        
-        # 3. Ambiguous
-        st.subheader("Ambiguous Records")
-        if st.session_state.candidates:
-            candidates_json = [json.loads(c.model_dump_json()) for c in st.session_state.candidates]
-            st.dataframe(candidates_json, use_container_width=True)
-        else:
-            st.info("No ambiguous records.")
-            
-        # 4. AI Result
-        st.subheader("AI Results")
-        if st.session_state.get('llm_decisions'):
-            llm_json = [json.loads(d.model_dump_json()) for d in st.session_state.llm_decisions]
-            st.dataframe(llm_json, use_container_width=True)
-        else:
-            st.info("No AI results available.")

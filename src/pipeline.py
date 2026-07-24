@@ -8,6 +8,7 @@ from src.core.models import ShippingRecord
 def run_resolution_pipeline(
     records: List[ShippingRecord], 
     master_json_path: str, 
+    custom_aliases: Dict[str, str] = None,
     ui_callback: Callable[[str, dict], None] = None
 ) -> Dict[str, Any]:
     """
@@ -27,7 +28,7 @@ def run_resolution_pipeline(
     if ui_callback: 
         ui_callback("deterministic_start", {})
         
-    exact_matches, unmatched_records = process_exact_matches(records, master_json_path)
+    exact_matches, unmatched_records = process_exact_matches(records, master_json_path, custom_aliases)
 
     # 2. Pre-Processor (Junk Filter)
     to_vector_search = []
