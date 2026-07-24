@@ -415,9 +415,8 @@ elif menu == "3. Run Pipeline":
                 df_drill = pd.DataFrame([{
                     "Bill of Lading": r.bill_of_lading,
                     "Container": r.container_number,
-                    "Raw Consignee": r.consignee_name,
-                    "Raw Notify": r.notify_party,
-                    "Product": r.product_description
+                    "Messy Name": r.messy_party_name,
+                    "Role": r.party_role
                 } for r in matching_records])
                 st.info(f"**Drill Down for:** `{messy_name}`")
                 st.dataframe(df_drill, use_container_width=True)
