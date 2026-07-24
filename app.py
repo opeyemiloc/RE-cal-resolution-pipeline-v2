@@ -19,52 +19,69 @@ Upload a **Master Accounts List** and a **Shipping Manifest (e.g., MSC, Hapag-Ll
 The system will automatically extract, clean, route, and match the consignee names!
 """)
 
-# --- SIDEBAR: FILE UPLOADS ---
-with st.sidebar:
-    st.header("1. Upload Data")
+# --- CONFIGURATION SECTIONS ---
+with st.expander("📁 1. File Uploads", expanded=True):
     master_file = st.file_uploader("Upload Master Accounts (Excel)", type=["xlsx"])
     manifest_file = st.file_uploader("Upload Shipping Manifest (Excel)", type=["xlsx"])
     
-    # Default variables
-    sheet_name = 0
-    header_row_index = 0
-    skip_sub_header = False
-    bl_col = ""
-    container_col = ""
-    consignee_col = ""
-    notify_col = ""
-    product_col = ""
-    salvage_notify = True
-    strip_bank_prefixes = True
+# Default variables
+sheet_name = 0
+header_row_index = 0
+skip_sub_header = False
+bl_col = ""
+container_col = ""
+consignee_col = ""
+notify_col = ""
+product_col = ""
+salvage_notify = True
+strip_bank_prefixes = True
 
-    if manifest_file:
-        st.header("2. Structural Configuration")
+if manifest_file:
+    with st.expander("⚙️ 2. Data Configuration & Mapping", expanded=True):
+        st.subheader("Structural Configuration")
+        col_s1, col_s2, col_s3 = st.columns(3)
         excel_file = pd.ExcelFile(manifest_file)
-        sheet_name = st.selectbox("Target Sheet", excel_file.sheet_names)
-        header_row_index = int(st.number_input("Header Row Index (0-indexed)", min_value=0, value=0))
-        skip_sub_header = st.checkbox("Skip Sub-header Row", value=False)
+        with col_s1:
+            sheet_name = st.selectbox("Target Sheet", excel_file.sheet_names)
+        with col_s2:
+            header_row_index = int(st.number_input("Header Row Index (0-indexed)", min_value=0, value=0))
+        with col_s3:
+            st.write("")
+            st.write("")
+            skip_sub_header = st.checkbox("Skip Sub-header Row", value=False)
         
-        st.header("3. Dynamic Column Mapping")
+        st.divider()
+        st.subheader("Dynamic Column Mapping")
         try:
             df_preview = pd.read_excel(manifest_file, sheet_name=sheet_name, header=header_row_index, nrows=5)
             columns = [str(c) for c in df_preview.columns.tolist()]
             
-            st.write("Live Preview:")
-            st.dataframe(df_preview.head(3))
+            st.write("**Live Preview:**")
+            st.dataframe(df_preview.head(3), use_container_width=True)
             
-            bl_col = st.selectbox("🔴 Bill of Lading Column (Required)", [""] + columns)
-            container_col = st.selectbox("🔴 Container Number Column (Required)", [""] + columns)
-            consignee_col = st.selectbox("🔴 Consignee Name Column (Required)", [""] + columns)
-            notify_col = st.selectbox("🟡 Notify Party Column (Optional)", ["None"] + columns)
-            product_col = st.selectbox("🟡 Product/Cargo Column (Optional)", ["None"] + columns)
+            col_m1, col_m2, col_m3 = st.columns(3)
+            with col_m1:
+                bl_col = st.selectbox("🔴 Bill of Lading (Required)", [""] + columns)
+            with col_m2:
+                container_col = st.selectbox("🔴 Container Number (Required)", [""] + columns)
+            with col_m3:
+                consignee_col = st.selectbox("🔴 Consignee Name (Required)", [""] + columns)
+                
+            col_m4, col_m5 = st.columns(2)
+            with col_m4:
+                notify_col = st.selectbox("🟡 Notify Party (Optional)", ["None"] + columns)
+            with col_m5:
+                product_col = st.selectbox("🟡 Product/Cargo (Optional)", ["None"] + columns)
         except Exception as e:
             st.error(f"Error reading preview: {e}")
 
-        st.header("4. Business Logic Toggles")
+        st.divider()
+        st.subheader("Business Logic Toggles")
         salvage_notify = st.checkbox("Fallback to Notify Party if Consignee is empty", value=True)
         strip_bank_prefixes = st.checkbox("Clean bank prefixes ('TO THE ORDER OF...')", value=True)
 
-    run_btn = st.button("🚀 Run Pipeline", type="primary", use_container_width=True)
+st.write("") # spacer
+run_btn = st.button("🚀 Run Pipeline", type="primary", use_container_width=True)
 
 # --- PIPELINE EXECUTION ---
 if run_btn:
