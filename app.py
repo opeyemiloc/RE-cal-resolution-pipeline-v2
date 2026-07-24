@@ -1,7 +1,8 @@
 import streamlit as st
 import os
 import json
-from src.ingestion.router import parse_shipping_file
+import pandas as pd
+from src.ingestion.universal_parser import parse_user_driven_excel
 from src.ingestion.parsers.master_parser import ingest_master_list_excel
 from src.resolution.exact_matcher import process_exact_matches
 from src.resolution.candidate_generator import find_top_candidates
@@ -23,6 +24,46 @@ with st.sidebar:
     st.header("1. Upload Data")
     master_file = st.file_uploader("Upload Master Accounts (Excel)", type=["xlsx"])
     manifest_file = st.file_uploader("Upload Shipping Manifest (Excel)", type=["xlsx"])
+    
+    # Default variables
+    sheet_name = 0
+    header_row_index = 0
+    skip_sub_header = False
+    bl_col = ""
+    container_col = ""
+    consignee_col = ""
+    notify_col = ""
+    product_col = ""
+    salvage_notify = True
+    strip_bank_prefixes = True
+
+    if manifest_file:
+        st.header("2. Structural Configuration")
+        excel_file = pd.ExcelFile(manifest_file)
+        sheet_name = st.selectbox("Target Sheet", excel_file.sheet_names)
+        header_row_index = int(st.number_input("Header Row Index (0-indexed)", min_value=0, value=0))
+        skip_sub_header = st.checkbox("Skip Sub-header Row", value=False)
+        
+        st.header("3. Dynamic Column Mapping")
+        try:
+            df_preview = pd.read_excel(manifest_file, sheet_name=sheet_name, header=header_row_index, nrows=5)
+            columns = [str(c) for c in df_preview.columns.tolist()]
+            
+            st.write("Live Preview:")
+            st.dataframe(df_preview.head(3))
+            
+            bl_col = st.selectbox("🔴 Bill of Lading Column (Required)", [""] + columns)
+            container_col = st.selectbox("🔴 Container Number Column (Required)", [""] + columns)
+            consignee_col = st.selectbox("🔴 Consignee Name Column (Required)", [""] + columns)
+            notify_col = st.selectbox("🟡 Notify Party Column (Optional)", ["None"] + columns)
+            product_col = st.selectbox("🟡 Product/Cargo Column (Optional)", ["None"] + columns)
+        except Exception as e:
+            st.error(f"Error reading preview: {e}")
+
+        st.header("4. Business Logic Toggles")
+        salvage_notify = st.checkbox("Fallback to Notify Party if Consignee is empty", value=True)
+        strip_bank_prefixes = st.checkbox("Clean bank prefixes ('TO THE ORDER OF...')", value=True)
+
     run_btn = st.button("🚀 Run Pipeline", type="primary", use_container_width=True)
 
 # --- PIPELINE EXECUTION ---
@@ -48,7 +89,28 @@ if run_btn:
                 ingest_master_list_excel(master_path, master_json_path)
 
                 # 3. Parse Manifest & Extract Unique BLs
-                raw_records = parse_shipping_file(manifest_path)
+                if not bl_col or not container_col or not consignee_col:
+                    st.error("⚠️ Please map all Required Columns (BL, Container, Consignee) in Step 3.")
+                    st.stop()
+                    
+                column_mapping = {
+                    "bl_number": bl_col,
+                    "container_number": container_col,
+                    "consignee_name": consignee_col,
+                    "notify_party": notify_col if notify_col != "None" else None,
+                    "product_description": product_col if product_col != "None" else None
+                }
+                
+                raw_records = parse_user_driven_excel(
+                    file_source=manifest_path,
+                    sheet_name=sheet_name,
+                    header_row_index=header_row_index,
+                    skip_sub_header=skip_sub_header,
+                    column_mapping=column_mapping,
+                    salvage_notify=salvage_notify,
+                    strip_bank_prefixes=strip_bank_prefixes
+                )
+                
                 unique_bls = {r.bill_of_lading: r for r in raw_records if r.bill_of_lading}.values()
                 bl_level_records = list(unique_bls)
 
