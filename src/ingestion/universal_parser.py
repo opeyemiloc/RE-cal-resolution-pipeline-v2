@@ -2,6 +2,7 @@ import pandas as pd
 import math
 from typing import List, Union, Optional
 from src.core.models import ShippingRecord
+from src.core.config import config
 
 def clean_name(name: str, strip_bank: bool) -> str:
     if not isinstance(name, str):
@@ -13,12 +14,7 @@ def clean_name(name: str, strip_bank: bool) -> str:
     if strip_bank:
         name_upper = name.upper()
         # Common bank prefixes
-        prefixes_to_strip = [
-            "TO THE ORDER OF BANK OF ",
-            "TO THE ORDER OF ",
-            "TO ORDER OF ",
-            "ORDER OF "
-        ]
+        prefixes_to_strip = config["business_logic"]["bank_keywords"]
         for prefix in prefixes_to_strip:
             if name_upper.startswith(prefix):
                 # Remove prefix but keep original casing for the rest
@@ -74,7 +70,8 @@ def parse_user_driven_excel(
         # 4. Apply Salvage Logic
         if salvage_notify:
             # Check if consignee is missing or just junk like "SAME AS NOTIFY"
-            is_empty_or_junk = not final_party_name or final_party_name.upper() in ["SAME AS NOTIFY", "SAME AS NOTIFY PARTY", "TO ORDER"]
+            junk_patterns = config["business_logic"]["junk_patterns"]
+            is_empty_or_junk = not final_party_name or final_party_name.upper() in junk_patterns
             if is_empty_or_junk and notify_clean:
                 final_party_name = notify_clean
                 final_party_role = "Salvaged Consignee"
