@@ -226,11 +226,16 @@ elif menu == "4. Advanced Settings":
         
     with tab3:
         st.subheader("AI Model Selection")
-        models = ["Gemini 3.6 Flash", "Gemini 3.5 Flash"]
+        model_options = ["gemini-3.6-flash", "gemini-3.5-flash"]
+        format_mapping = {
+            "gemini-3.6-flash": "Gemini 3.6 Flash",
+            "gemini-3.5-flash": "Gemini 3.5 Flash"
+        }
         st.session_state.adv_llm_model = st.selectbox(
             "Select LLM", 
-            models, 
-            index=get_idx(models, st.session_state.adv_llm_model)
+            model_options, 
+            format_func=lambda x: format_mapping.get(x, x),
+            index=get_idx(model_options, st.session_state.adv_llm_model)
         )
 
 
