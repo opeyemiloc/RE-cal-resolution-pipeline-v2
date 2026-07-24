@@ -16,13 +16,13 @@ def _call_gemini_with_retry(client, model_name, prompt):
     )
 
 def _resolve_with_gemini(candidates: List[ResolutionCandidate]) -> List[LLMMatchDecision]:
-    import google.genai
+    from google import genai
     decisions: List[LLMMatchDecision] = []
     model_name = config['llm'].get('gemini', {}).get('model_name', 'gemini-3.6-flash')
     batch_size = config['llm'].get('gemini', {}).get('batch_size', 5)
     
     # Initialize Gemini Client (automatically picks up GEMINI_API_KEY from environment)
-    client = google.genai.Client()
+    client = genai.Client()
     
     print(f"\n🧠 Starting LLM Resolution Phase for {len(candidates)} candidates using Gemini ({model_name}) with batch size {batch_size}...")
     
