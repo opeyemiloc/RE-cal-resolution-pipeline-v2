@@ -226,7 +226,7 @@ elif menu == "4. Advanced Settings":
         
     with tab3:
         st.subheader("AI Model Selection")
-        models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
+        models = ["Gemini 3.6 Flash", "Gemini 3.5 Flash"]
         st.session_state.adv_llm_model = st.selectbox(
             "Select LLM", 
             models, 
@@ -258,6 +258,7 @@ elif menu == "3. Run Pipeline":
                     config['business_logic']['bank_keywords'] = [s.strip() for s in st.session_state.adv_bank_keywords.split(",") if s.strip()]
                     
                     if 'gemini' not in config['llm']: config['llm']['gemini'] = {}
+                    
                     config['llm']['gemini']['model_name'] = st.session_state.adv_llm_model
                     config['llm']['provider'] = 'gemini'
                     
