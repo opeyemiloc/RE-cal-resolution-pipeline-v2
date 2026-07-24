@@ -16,8 +16,8 @@ Shipping lines (MSC, Hapag-Lloyd, ONE, COSCO) each send container arrival lists 
 ## Architecture
 
 ```text
-Excel Upload ──► Router ──► Line-Specific Parser ──► Universal Schema
-                                                          │
+Excel Upload ──► Streamlit UI Config ──► Universal Parser ──► Universal Schema
+                                                                  │
                             ┌─────────────────────────────┘
                             ▼
                      Exact Matcher (Pass 1: Normalized, Pass 2: Core Brand)
@@ -66,14 +66,14 @@ streamlit run app.py
 
 The app opens at `http://localhost:8501`. Upload a **Master Accounts Excel** and a **Manifest Excel** from the sidebar, then click **Run Pipeline**.
 
-## Supported Shipping Lines
+## User-Driven Ingestion Engine
 
-| Carrier      | File Keywords               | Parser     | Format Notes                        |
-|--------------|-----------------------------|------------|-------------------------------------|
-| MSC          | `msc`                       | `msc.py`   | 5 metadata rows, clean headers      |
-| Hapag-Lloyd  | `hapag`, `hlc`, `vancouver star` | `hapag.py` | 7 metadata rows, leading empty col  |
-| ONE          | `navios`, `o.n.e`, `one nig`    | `one.py`   | 8 metadata rows, split header rows  |
-| COSCO        | `cosco`, `kota lagu`, `coscocal` | `cosco.py` | No metadata, headers on row 0       |
+Instead of relying on fragile, hardcoded parsers for each shipping line, this pipeline features a completely dynamic ingestion engine. Through the Streamlit UI, users explicitly define how to parse their manifests:
+
+1. **Target Sheet & Header Index**: Skip boilerplate formatting and identify exactly where data starts.
+2. **Live Data Preview**: Immediately see how the parser views the target header row.
+3. **Dynamic Column Mapping**: Map required (`BL`, `Container`, `Consignee`) and optional fields dynamically from dropdowns.
+4. **Business Logic Overrides**: Toggle automatic "Notify Party" fallback and bank prefix stripping on the fly.
 
 ## Configuration
 
@@ -83,7 +83,6 @@ All tunable settings live in [`config.yaml`](config.yaml):
 - **`thresholds`** — Vector search quality gate (e.g., `0.3`), minimum name length
 - **`llm`** — Model name (`gemini-3.6-flash`), batch inference size (`batch_size: 5`), and temperature
 - **`business_logic`** — Suffix words, junk patterns, bank keywords
-- **`routing`** — Filename keywords that map to each parser
 
 ## Future Roadmap & Admin Dashboard
 
