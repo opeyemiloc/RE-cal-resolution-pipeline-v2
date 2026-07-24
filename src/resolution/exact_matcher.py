@@ -23,7 +23,7 @@ def strip_trailing_suffixes(name: str) -> str:
         
     return " ".join(tokens)
 
-def process_exact_matches(records: List[ShippingRecord], master_accounts_path: str) -> Tuple[List[LLMMatchDecision], List[ShippingRecord]]:
+def process_exact_matches(records: List[ShippingRecord], master_accounts_path: str, custom_aliases: Dict[str, str] = None) -> Tuple[List[LLMMatchDecision], List[ShippingRecord]]:
     """
     Pass 1: Direct exact match on normalized names.
     Pass 2: Core brand exact match (ignoring trailing suffixes).
@@ -70,6 +70,15 @@ def process_exact_matches(records: List[ShippingRecord], master_accounts_path: s
         clean_messy = normalize_name(record.messy_party_name)
         core_messy = strip_trailing_suffixes(clean_messy)
         
+        # Pass 0: Custom Workspace Aliases (User-approved overrides)
+        if custom_aliases and record.messy_party_name in custom_aliases:
+            exact_matches.append(LLMMatchDecision(
+                original_messy_name=record.messy_party_name,
+                matched=True,
+                resolved_master_name=custom_aliases[record.messy_party_name],
+                confidence_score=100,
+                reasoning="Pass 0: Exact match found in custom Workspace Aliases."
+            ))
         # Pass 1: Direct Match
         if clean_messy in normalized_master_lookup:
             exact_matches.append(LLMMatchDecision(
