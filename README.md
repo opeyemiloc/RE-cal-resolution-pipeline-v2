@@ -1,4 +1,4 @@
-# Container Arrival List (CAL) AI Resolution Pipeline
+# Container Arrival List (CAL) AI Resolution Pipeline (V2)
 
 An automated data extraction and AI-powered entity resolution pipeline that processes unstructured shipping documents (Container Arrival Lists) and matches incoming freight consignees to a master accounts database.
 
@@ -6,40 +6,47 @@ An automated data extraction and AI-powered entity resolution pipeline that proc
 
 Shipping lines (MSC, Hapag-Lloyd, ONE, COSCO) each send container arrival lists in different messy Excel formats. This pipeline:
 
-1. **Ingests** any supported Excel file and extracts structured data.
+1. **Ingests** any supported Excel file and extracts structured data using a dynamic, user-steered UI.
 2. **Filters** junk records (e.g., "TO ORDER", "BANK") instantly.
-3. **Matches** messy consignee names to your master accounts list deterministically using string normalization.
+3. **Matches** messy consignee names to your master accounts list deterministically using string normalization and **Portable Workspace Aliases**.
 4. **Vector Searches** a database of candidates for any records that fail deterministic matching.
-5. **AI Resolution (Batched)** sends ambiguous records to Gemini 3.6 Flash in optimized batches to make final matching decisions, completely bypassing rate limits.
-6. **Reports** results via a dynamic Streamlit dashboard with full CSV download support.
+5. **AI Resolution (Batched)** sends ambiguous records to Gemini in optimized batches to make final matching decisions, completely bypassing rate limits.
+6. **Active Learning (Human-in-the-Loop)** flags low-confidence AI matches for human review, allowing users to approve them into a portable Alias Dictionary for future runs.
+7. **Reports** results via a dynamic Streamlit dashboard with Pivot-Table Drill-Downs and a Standalone `.xlsx` Export.
 
 ## Architecture
 
 ```text
 Excel Upload ──► Streamlit UI Config ──► Universal Parser ──► Universal Schema
-                                                                  │
-                            ┌─────────────────────────────┘
-                            ▼
-                     Exact Matcher (Pass 1: Normalized, Pass 2: Core Brand)
-                            │
-                     ┌──────┴──────┐
-                     ▼             ▼
-               ✅ Matched    Unmatched
-                                   │
-                            Junk Pre-Filter
-                            │             │
-                            ▼             ▼
-                     🔴 Rejected    Vector Search (FAISS + Sentence Transformers)
-                                          │
-                                   ┌──────┴──────┐
-                                   ▼             ▼
-                            Below Threshold   🟡 Top Candidates
-                            (Dropped)             │
-                                                  ▼
-                                           LLM Resolver (Gemini)
-                                        (Exponential Backoff + Batching)
-                                                  │
-                                            Final Decisions
+(Master & Manifest)                                                │
+                                                                   ▼
+┌──────────────────────────────────────────┐             Exact Matcher (Pass 0: Custom Aliases,
+│ 📁 Portable Workspace (Active Learning)  │ ◄────────── Pass 1: Normalized, Pass 2: Core Brand)
+└──────────────────────────────────────────┘                       │
+                                                         ┌─────────┴─────────┐
+                                                         ▼                   ▼
+                                                   ✅ Matched          Unmatched
+                                                                             │
+                                                                       Junk Pre-Filter
+                                                                             │             │
+                                                                             ▼             ▼
+                                                                      🔴 Rejected    Vector Search (FAISS + Sentence Transformers)
+                                                                                           │
+                                                                                     ┌─────┴─────┐
+                                                                                     ▼           ▼
+                                                                              Below Threshold  🟡 Top Candidates
+                                                                              (Dropped)          │
+                                                                                                 ▼
+                                                                                           LLM Resolver (Gemini)
+                                                                                        (Exponential Backoff + Batching)
+                                                                                                 │
+                                                                                     ┌───────────┴───────────┐
+                                                                                     ▼                       ▼
+                                                                              ⚠️ Needs Review (<95%)   ✅ High Confidence
+                                                                               (Editable in UI)          (Editable in UI)
+                                                                                     │                       │
+                                                                                     ▼                       ▼
+                                                                          💾 Saved to Portable Workspace & Exported as Excel
 ```
 
 ## Quick Start
@@ -64,35 +71,39 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-The app opens at `http://localhost:8501`. Upload a **Master Accounts Excel** and a **Manifest Excel** from the sidebar, then click **Run Pipeline**.
+The app opens at `http://localhost:8501`. 
 
-## User-Driven Ingestion Engine
+## V2 Major Features
 
-Instead of relying on fragile, hardcoded parsers for each shipping line, this pipeline features a completely dynamic ingestion engine. Through the Streamlit UI, users explicitly define how to parse their manifests:
+### 1. User-Driven Ingestion Engine & Multi-Tenancy
+Instead of relying on fragile, hardcoded parsers or database user authentication, this pipeline features a completely dynamic multi-tab Excel ingestion engine:
+- **Zero-Overhead Multi-Tenancy (Master Accounts)**: Store different operators or client lists (e.g., OPE, MICHEAL, NNEOMA) as different tabs in a single Master Excel file. Select which sheet to use on the fly with live visual previews.
+- **Multi-Carrier Manifest Support**: Switch between different shipping line tabs (e.g., MSC, Hapag-Lloyd, ONE) in a single workbook without reloading.
+- **Target Sheet & Header Index**: Skip boilerplate formatting and identify exactly where table headers begin with real-time visual table previews.
+- **Dynamic Column Mapping**: Map required (`BL`, `Container`, `Consignee`) and optional fields dynamically from dropdowns populated from the selected sheet.
+- **Starter Templates**: Downloadable multi-tab starter templates directly in the UI to guide users on structuring multi-user master lists and multi-carrier manifests.
 
-1. **Target Sheet & Header Index**: Skip boilerplate formatting and identify exactly where data starts.
-2. **Live Data Preview**: Immediately see how the parser views the target header row.
-3. **Dynamic Column Mapping**: Map required (`BL`, `Container`, `Consignee`) and optional fields dynamically from dropdowns.
-4. **Business Logic Overrides**: Toggle automatic "Notify Party" fallback and bank prefix stripping on the fly.
+### 2. The Portable Workspace (Active Learning)
+Because cloud environments (like Streamlit Community Cloud) reset frequently, V2 introduces a stateless **Portable Brain**.
+- **Upload an Excel Workspace** to instantly inject your saved Settings and Custom Aliases.
+- **Pass 0 Matching**: The pipeline bypasses expensive AI calls by checking your Workspace Aliases first.
+- **Human-in-the-Loop Review**: At the end of the pipeline, AI results are split into a **Needs Review Queue (< 95% Confidence)** and a High Confidence Queue. Users can edit decisions, check "Approve for Learning", and instantly download an updated Workspace Excel for tomorrow.
 
-## Configuration
+### 3. Advanced Settings Control Center
+A dedicated UI tab to override `config.yaml` parameters in real-time:
+- **Entity Resolution**: Tune FAISS similarity score thresholds and Top-K lookups.
+- **Dynamic Cleaning Rules**: Edit Junk filter phrases, Suffix lists, and Bank stripping logic.
+- **LLM Switching**: Swap between Gemini Flash models on the fly.
 
-All tunable settings live in [`config.yaml`](config.yaml):
-
-- **`paths`** — Input/output/reference directories
-- **`thresholds`** — Vector search quality gate (e.g., `0.3`), minimum name length
-- **`llm`** — Model name (`gemini-3.6-flash`), batch inference size (`batch_size: 5`), and temperature
-- **`business_logic`** — Suffix words, junk patterns, bank keywords
-
-## Future Roadmap & Admin Dashboard
-
-To see the planned transition of this tool into a full SaaS product (including Database Integration, Admin Dashboards, and Continuous AI Learning), please refer to the [ROADMAP.md](ROADMAP.md) file.
+### 4. Interactive Analytics & Excel Reporting
+- **Pivot-Table Drill-Down**: Click on any row in the Deterministic, Ambiguous, or AI tables to instantly view the underlying raw manifest records (Bill of Lading, Container, Consignee) that share that name.
+- **Standalone Excel Export**: Export a pristine, professional `.xlsx` report tagging every record by `Resolution Type` (Exact Match, Junk Filter, or AI Model).
 
 ## Tech Stack
 
 - **Python 3.x** with Pydantic for strict LLM data validation
-- **pandas** for messy Excel parsing
+- **pandas** for messy Excel parsing and data manipulation
 - **FAISS + Sentence Transformers** for vector similarity search
-- **Google GenAI SDK (Gemini 3.6 Flash)** for batched LLM entity resolution
+- **Google GenAI SDK** for batched LLM entity resolution
 - **Tenacity** for bulletproof Exponential Backoff & rate limit handling
-- **Streamlit** for the web GUI
+- **Streamlit** for the web GUI & Interactive Data Editors

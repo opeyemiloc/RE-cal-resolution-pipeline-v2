@@ -12,6 +12,36 @@ def create_empty_workspace_template() -> bytes:
         pd.DataFrame(columns=["Date", "Total Records", "Exact Matches", "Auto Rejected", "AI Matches"]).to_excel(writer, sheet_name="Run_History", index=False)
     return buffer.getvalue()
 
+def create_master_template() -> bytes:
+    """Generates a sample multi-tenant Master Accounts Excel file with tabs for different operators."""
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_sample = pd.DataFrame([
+            {"Account Name": "Flourish Global Appliances Ltd", "Alias / ID": "FLOURISH_001"},
+            {"Account Name": "Dangote Cement Plc", "Alias / ID": "DANGOTE_CEM"},
+            {"Account Name": "Nestle Nigeria Plc", "Alias / ID": "NESTLE_NG"}
+        ])
+        df_sample.to_excel(writer, sheet_name="OPE", index=False)
+        df_sample.to_excel(writer, sheet_name="MICHEAL", index=False)
+        df_sample.to_excel(writer, sheet_name="NNEOMA", index=False)
+    return buffer.getvalue()
+
+def create_manifest_template() -> bytes:
+    """Generates a sample multi-carrier Shipping Manifest Excel file with tabs for different shipping lines."""
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_msc = pd.DataFrame([
+            {"B/L NO": "MEDU12345678", "Cont. Prefix": "MSCU9876543", "Receiver": "FLOURISH GLOBAL APPLIANCES LTD", "Notify Name": "SAME AS RECEIVER", "Cargo Desc": "ELECTRONICS"},
+            {"B/L NO": "MEDU87654321", "Cont. Prefix": "MSCU3456789", "Receiver": "TO THE ORDER OF BANK OF AFRICA", "Notify Name": "DANGOTE CEMENT PLC", "Cargo Desc": "RAW MATERIALS"}
+        ])
+        df_hapag = pd.DataFrame([
+            {"BL_NUMBER": "HLCU11223344", "CONTAINER_ID": "HLBU5566778", "CONSIGNEE": "NESTLE NIGERIA PLC", "NOTIFY_PARTY": "NESTLE NIGERIA PLC", "DESCRIPTION": "FOOD PRODUCTS"}
+        ])
+        df_msc.to_excel(writer, sheet_name="MSC", index=False)
+        df_hapag.to_excel(writer, sheet_name="Hapag-Lloyd", index=False)
+        df_msc.to_excel(writer, sheet_name="ONE", index=False)
+    return buffer.getvalue()
+
 def load_workspace(file_bytes: bytes) -> Tuple[Dict[str, str], Dict[str, Any], pd.DataFrame]:
     """Loads the Workspace Excel file and extracts its data."""
     buffer = io.BytesIO(file_bytes)

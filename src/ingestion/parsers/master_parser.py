@@ -3,7 +3,7 @@ import json
 import pandas as pd
 from typing import List
 
-def ingest_master_list_excel(excel_path: str, output_json_path: str, name_col: str = None, id_col: str = None, alias_col: str = None) -> str:
+def ingest_master_list_excel(excel_path: str, output_json_path: str, name_col: str = None, id_col: str = None, alias_col: str = None, sheet_name: str | int = 0, header_row_index: int = 0) -> str:
     """
     Reads a Master List Excel file, extracts account names (and optionally aliases), 
     and saves them as a JSON array for the pipeline to use.
@@ -12,7 +12,7 @@ def ingest_master_list_excel(excel_path: str, output_json_path: str, name_col: s
         raise FileNotFoundError(f"❌ Master list Excel not found at {excel_path}")
         
     try:
-        df = pd.read_excel(excel_path)
+        df = pd.read_excel(excel_path, sheet_name=sheet_name, header=header_row_index)
     except Exception as e:
         raise ValueError(f"Failed to read Master List Excel. Error: {e}")
     

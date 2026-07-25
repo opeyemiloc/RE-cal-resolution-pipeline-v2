@@ -7,7 +7,7 @@ from src.ingestion.universal_parser import parse_user_driven_excel
 from src.ingestion.parsers.master_parser import ingest_master_list_excel
 from src.pipeline import run_resolution_pipeline
 from src.core.config import config
-from src.workspace import create_empty_workspace_template, load_workspace, update_workspace
+from src.workspace import create_empty_workspace_template, load_workspace, update_workspace, create_master_template, create_manifest_template
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Logistics AI Matcher", page_icon="🚢", layout="wide")
@@ -46,6 +46,8 @@ if 'strip_bank_prefixes' not in st.session_state: st.session_state.strip_bank_pr
 
 if 'master_name_col' not in st.session_state: st.session_state.master_name_col = ""
 if 'master_alias_col' not in st.session_state: st.session_state.master_alias_col = ""
+if 'master_sheet_name' not in st.session_state: st.session_state.master_sheet_name = 0
+if 'master_header_row_index' not in st.session_state: st.session_state.master_header_row_index = 0
 
 # Advanced Config State
 if 'adv_vector_threshold' not in st.session_state: st.session_state.adv_vector_threshold = config['thresholds']['vector_quality_threshold']
@@ -108,6 +110,14 @@ if menu == "1. File Uploads":
             st.session_state.master_file_name = master_file.name
         elif st.session_state.master_file_name:
             st.success(f"Loaded: {st.session_state.master_file_name}")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button(
+            label="📥 Download Multi-User Master Template",
+            data=create_master_template(),
+            file_name="Master_Accounts_Template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Download an example multi-tab master accounts file (OPE, MICHEAL, NNEOMA)."
+        )
             
     with col2:
         st.subheader("2. Shipping Manifest")
@@ -117,6 +127,14 @@ if menu == "1. File Uploads":
             st.session_state.manifest_file_name = manifest_file.name
         elif st.session_state.manifest_file_name:
             st.success(f"Loaded: {st.session_state.manifest_file_name}")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button(
+            label="📥 Download Multi-Carrier Manifest Template",
+            data=create_manifest_template(),
+            file_name="Multi_Carrier_Manifest_Template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Download an example multi-carrier manifest file (MSC, Hapag-Lloyd, ONE)."
+        )
 
     with col3:
         st.subheader("3. Portable Workspace (Optional)")
@@ -158,12 +176,31 @@ elif menu == "2. Data Configuration":
     st.header("⚙️ 2. Data Configuration & Mapping")
     
     # 1. Master List Config
-    if st.session_state.master_file_bytes:
+    if not st.session_state.master_file_bytes:
+        st.warning("⚠️ Please upload a Master Accounts List in the 'File Uploads' section.")
+    else:
+        st.subheader("Master Accounts Structural Configuration")
+        col_ms1, col_ms2, col_ms3 = st.columns(3)
+        
+        master_io = io.BytesIO(st.session_state.master_file_bytes)
+        master_excel = pd.ExcelFile(master_io)
+        
+        with col_ms1:
+            st.session_state.master_sheet_name = st.selectbox("Master Target Sheet", master_excel.sheet_names, index=get_idx(master_excel.sheet_names, st.session_state.master_sheet_name))
+        with col_ms2:
+            st.session_state.master_header_row_index = int(st.number_input("Master Header Row Index (0-indexed)", min_value=0, value=st.session_state.master_header_row_index))
+        with col_ms3:
+            st.write("")
+            
+        st.divider()
         st.subheader("Master List Column Mapping")
         try:
-            master_io = io.BytesIO(st.session_state.master_file_bytes)
-            df_master_preview = pd.read_excel(master_io, nrows=3)
+            master_io.seek(0)
+            df_master_preview = pd.read_excel(master_io, sheet_name=st.session_state.master_sheet_name, header=st.session_state.master_header_row_index, nrows=5)
             master_cols = [str(c) for c in df_master_preview.columns.tolist()]
+            
+            st.write("**Live Preview:**")
+            st.dataframe(df_master_preview.head(3), use_container_width=True)
             
             col_ma1, col_ma2 = st.columns(2)
             with col_ma1:
@@ -329,7 +366,9 @@ elif menu == "3. Run Pipeline":
                         excel_path=master_path, 
                         output_json_path=master_json_path,
                         name_col=st.session_state.master_name_col if st.session_state.master_name_col != "None" else None,
-                        alias_col=st.session_state.master_alias_col if st.session_state.master_alias_col != "None" else None
+                        alias_col=st.session_state.master_alias_col if st.session_state.master_alias_col != "None" else None,
+                        sheet_name=st.session_state.master_sheet_name,
+                        header_row_index=st.session_state.master_header_row_index
                     )
 
                     # 3. Parse Manifest & Extract Unique BLs
