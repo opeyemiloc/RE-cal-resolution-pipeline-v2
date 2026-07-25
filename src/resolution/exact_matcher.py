@@ -63,6 +63,7 @@ def process_exact_matches(records: List[ShippingRecord], master_accounts_path: s
         if core in core_master_lookup:
             del core_master_lookup[core]
             
+    master_accounts_set: Set[str] = set(master_accounts)
     exact_matches: List[LLMMatchDecision] = []
     unmatched_records: List[ShippingRecord] = []
     
@@ -71,7 +72,7 @@ def process_exact_matches(records: List[ShippingRecord], master_accounts_path: s
         core_messy = strip_trailing_suffixes(clean_messy)
         
         # Pass 0: Custom Workspace Aliases (User-approved overrides)
-        if custom_aliases and record.messy_party_name in custom_aliases:
+        if custom_aliases and record.messy_party_name in custom_aliases and custom_aliases[record.messy_party_name] in master_accounts_set:
             exact_matches.append(LLMMatchDecision(
                 original_messy_name=record.messy_party_name,
                 matched=True,
@@ -80,7 +81,7 @@ def process_exact_matches(records: List[ShippingRecord], master_accounts_path: s
                 reasoning="Pass 0: Exact match found in custom Workspace Aliases."
             ))
         # Pass 1: Direct Match
-        if clean_messy in normalized_master_lookup:
+        elif clean_messy in normalized_master_lookup:
             exact_matches.append(LLMMatchDecision(
                 original_messy_name=record.messy_party_name,
                 matched=True,

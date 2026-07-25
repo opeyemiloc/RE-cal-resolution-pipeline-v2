@@ -144,7 +144,7 @@ if menu == "1. File Uploads":
             st.session_state.workspace_name = workspace_file.name
             
             # Extract aliases and settings automatically
-            aliases, settings, _ = load_workspace(st.session_state.workspace_bytes)
+            aliases, settings, _ = load_workspace(st.session_state.workspace_bytes, target_user=str(st.session_state.master_sheet_name))
             st.session_state.workspace_aliases = aliases
             if settings:
                 if "vector_threshold" in settings: st.session_state.adv_vector_threshold = float(settings["vector_threshold"])
@@ -187,6 +187,8 @@ elif menu == "2. Data Configuration":
         
         with col_ms1:
             st.session_state.master_sheet_name = st.selectbox("Master Target Sheet", master_excel.sheet_names, index=get_idx(master_excel.sheet_names, st.session_state.master_sheet_name))
+            if st.session_state.workspace_bytes:
+                st.session_state.workspace_aliases, _, _ = load_workspace(st.session_state.workspace_bytes, target_user=str(st.session_state.master_sheet_name))
         with col_ms2:
             st.session_state.master_header_row_index = int(st.number_input("Master Header Row Index (0-indexed)", min_value=0, value=st.session_state.master_header_row_index))
         with col_ms3:
@@ -412,6 +414,9 @@ elif menu == "3. Run Pipeline":
                         elif status == "pipeline_complete":
                             ui_placeholder.empty()
 
+                    if st.session_state.workspace_bytes:
+                        st.session_state.workspace_aliases, _, _ = load_workspace(st.session_state.workspace_bytes, target_user=str(st.session_state.master_sheet_name))
+
                     results = run_resolution_pipeline(
                         records=bl_level_records, 
                         master_json_path=master_json_path,
@@ -589,7 +594,8 @@ elif menu == "3. Run Pipeline":
                 st.session_state.workspace_bytes, 
                 approved_aliases, 
                 current_settings, 
-                run_stats
+                run_stats,
+                active_user=str(st.session_state.master_sheet_name)
             )
             
             st.divider()

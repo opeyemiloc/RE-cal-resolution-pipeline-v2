@@ -83,10 +83,11 @@ Instead of relying on fragile, hardcoded parsers or database user authentication
 - **Dynamic Column Mapping**: Map required (`BL`, `Container`, `Consignee`) and optional fields dynamically from dropdowns populated from the selected sheet.
 - **Starter Templates**: Downloadable multi-tab starter templates directly in the UI to guide users on structuring multi-user master lists and multi-carrier manifests.
 
-### 2. The Portable Workspace (Active Learning)
+### 2. The Portable Workspace (Active Learning & Multi-Tenant Scope)
 Because cloud environments (like Streamlit Community Cloud) reset frequently, V2 introduces a stateless **Portable Brain**.
 - **Upload an Excel Workspace** to instantly inject your saved Settings and Custom Aliases.
-- **Pass 0 Matching**: The pipeline bypasses expensive AI calls by checking your Workspace Aliases first.
+- **Multi-Tenant Scope (User Partitioning)**: The Workspace automatically tags approved aliases with the active Master Target Sheet (e.g., `OPE`, `MICHEAL`, `NNEOMA`) in a `USER` column. When you switch users, it filters aliases on the fly so OPE's learned mappings never leak into MICHEAL's pipeline.
+- **Strict Master List Validation (Pass 0 Guard)**: Before an alias is applied, the pipeline verifies that the target account exists in the active user's Master Sheet.
 - **Human-in-the-Loop Review**: At the end of the pipeline, AI results are split into a **Needs Review Queue (< 95% Confidence)** and a High Confidence Queue. Users can edit decisions, check "Approve for Learning", and instantly download an updated Workspace Excel for tomorrow.
 
 ### 3. Advanced Settings Control Center
