@@ -425,6 +425,7 @@ elif menu == "3. Run Pipeline":
                     )
                     
                     # Store results in session_state
+                    st.session_state.raw_records = raw_records
                     st.session_state.bl_level_records = bl_level_records
                     st.session_state.exact_matches = results["exact_matches"]
                     st.session_state.auto_rejected = results["auto_rejected"]
@@ -448,182 +449,308 @@ elif menu == "3. Run Pipeline":
         col3.metric("🔴 Auto-Rejected (Junk)", len(st.session_state.auto_rejected))
         col4.metric("🤖 AI Matches", len(st.session_state.llm_decisions))
         st.divider()
-
-        st.subheader("🔍 Click a row in any table below to view its original manifest records")
-
-        def show_drilldown(selection_event, dataframe, key_col):
-            if selection_event and selection_event.selection.rows:
-                idx = selection_event.selection.rows[0]
-                messy_name = dataframe.iloc[idx][key_col]
-                matching_records = [r for r in st.session_state.bl_level_records if r.messy_party_name == messy_name]
-                df_drill = pd.DataFrame([{
-                    "Bill of Lading": r.bill_of_lading,
-                    "Container": r.container_number,
-                    "Messy Name": r.messy_party_name,
-                    "Role": r.party_role
-                } for r in matching_records])
-                st.info(f"**Drill Down for:** `{messy_name}`")
-                st.dataframe(df_drill, use_container_width=True)
-
-        # 1. Deterministic
-        st.subheader("Deterministic Decisions")
-        deterministic = st.session_state.exact_matches + st.session_state.auto_rejected
-        if deterministic:
-            df_det = pd.DataFrame([json.loads(d.model_dump_json()) for d in deterministic])
-            event_det = st.dataframe(df_det, use_container_width=True, selection_mode="single-row", on_select="rerun")
-            show_drilldown(event_det, df_det, "original_messy_name")
-        else:
-            st.info("No deterministic decisions available.")
+        res_tab1, res_tab2 = st.tabs(["👀 Resolution Preview & AI Queue", "📈 Interactive Reporting Tab"])
         
-        # 2. Ambiguous
-        st.subheader("Ambiguous Records")
-        if st.session_state.candidates:
-            df_amb = pd.DataFrame([json.loads(c.model_dump_json()) for c in st.session_state.candidates])
-            event_amb = st.dataframe(df_amb, use_container_width=True, selection_mode="single-row", on_select="rerun")
-            show_drilldown(event_amb, df_amb, "messy_name")
-        else:
-            st.info("No ambiguous records.")
-            
-        # 3. AI Results
-        st.subheader("AI Results")
-        if st.session_state.get('llm_decisions'):
-            df_ai = pd.DataFrame([json.loads(d.model_dump_json()) for d in st.session_state.llm_decisions])
-            event_ai = st.dataframe(df_ai, use_container_width=True, selection_mode="single-row", on_select="rerun")
-            show_drilldown(event_ai, df_ai, "original_messy_name")
-        else:
-            st.info("No AI results available.")
-            df_ai = pd.DataFrame()
+        with res_tab1:
+            st.subheader("🔍 Click a row in any table below to view its original manifest records")
 
+            def show_drilldown(selection_event, dataframe, key_col):
+                if selection_event and selection_event.selection.rows:
+                    idx = selection_event.selection.rows[0]
+                    messy_name = dataframe.iloc[idx][key_col]
+                    matching_records = [r for r in st.session_state.get('raw_records', st.session_state.bl_level_records) if r.messy_party_name == messy_name]
+                    df_drill = pd.DataFrame([{
+                        "Bill of Lading": r.bill_of_lading,
+                        "Container": r.container_number,
+                        "Messy Name": r.messy_party_name,
+                        "Notify Party": r.notify_party,
+                        "Role": r.party_role
+                    } for r in matching_records])
+                    st.info(f"**Drill Down for:** `{messy_name}`")
+                    st.dataframe(df_drill, use_container_width=True)
 
-        # Generate Base Excel Data
-        excel_data = []
-        for d in st.session_state.exact_matches:
-            excel_data.append({
-                "Original Messy Name": d.original_messy_name,
-                "Resolved Master Name": d.resolved_master_name,
-                "Resolution Type": "Exact Match",
-                "Confidence Score": d.confidence_score,
-                "Reasoning": d.reasoning
-            })
-        for d in st.session_state.auto_rejected:
-            excel_data.append({
-                "Original Messy Name": d.original_messy_name,
-                "Resolved Master Name": d.resolved_master_name,
-                "Resolution Type": "Junk Filter",
-                "Confidence Score": d.confidence_score,
-                "Reasoning": d.reasoning
-            })
-        for d in st.session_state.llm_decisions:
-            excel_data.append({
-                "Original Messy Name": d.original_messy_name,
-                "Resolved Master Name": d.resolved_master_name,
-                "Resolution Type": "AI Model",
-                "Confidence Score": d.confidence_score,
-                "Reasoning": d.reasoning
-            })
-            
-        df_report = pd.DataFrame(excel_data)
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df_report.to_excel(writer, index=False, sheet_name='Resolution Results')
-        
-        # --- HUMAN IN THE LOOP (AI QUEUE) ---
-        st.divider()
-        st.subheader("⚠️ AI Review Queue")
-        st.info("Edit the 'Resolved Master Name' if the AI was wrong. Check 'Approve for Learning' to add the rule to your workspace so the AI remembers it next time!")
-        
-        if not df_ai.empty:
-            df_ai_filtered = df_ai[["original_messy_name", "resolved_master_name", "confidence_score", "reasoning", "matched"]]
-            
-            # Split into Needs Review vs High Confidence
-            df_needs_review = df_ai_filtered[df_ai_filtered["confidence_score"] < 95].copy()
-            df_high_conf = df_ai_filtered[df_ai_filtered["confidence_score"] >= 95].copy()
-            
-            # Setup columns for the data editor
-            if not df_needs_review.empty:
-                df_needs_review.insert(0, "✅ Approve for Learning", False)
-                st.markdown("**Needs Review (Confidence < 95%)**")
-                edited_needs_review = st.data_editor(
-                    df_needs_review,
-                    hide_index=True,
-                    disabled=["original_messy_name", "confidence_score", "reasoning", "matched"],
-                    use_container_width=True
-                )
+            # 1. Deterministic
+            st.subheader("Deterministic Decisions")
+            deterministic = st.session_state.exact_matches + st.session_state.auto_rejected
+            if deterministic:
+                df_det = pd.DataFrame([json.loads(d.model_dump_json()) for d in deterministic])
+                event_det = st.dataframe(df_det, use_container_width=True, selection_mode="single-row", on_select="rerun")
+                show_drilldown(event_det, df_det, "original_messy_name")
             else:
-                edited_needs_review = pd.DataFrame()
-                
-            if not df_high_conf.empty:
-                df_high_conf.insert(0, "✅ Approve for Learning", True)
-                st.markdown("**High Confidence (Confidence ≥ 95%)**")
-                edited_high_conf = st.data_editor(
-                    df_high_conf,
-                    hide_index=True,
-                    disabled=["original_messy_name", "confidence_score", "reasoning", "matched"],
-                    use_container_width=True
-                )
+                st.info("No deterministic decisions available.")
+            
+            # 2. Ambiguous
+            st.subheader("Ambiguous Records")
+            if st.session_state.candidates:
+                df_amb = pd.DataFrame([json.loads(c.model_dump_json()) for c in st.session_state.candidates])
+                event_amb = st.dataframe(df_amb, use_container_width=True, selection_mode="single-row", on_select="rerun")
+                show_drilldown(event_amb, df_amb, "messy_name")
             else:
-                edited_high_conf = pd.DataFrame()
+                st.info("No ambiguous records.")
                 
-            # Compile approved aliases
-            approved_aliases = {}
-            for df_edited in [edited_needs_review, edited_high_conf]:
-                if not df_edited.empty:
-                    approved_rows = df_edited[df_edited["✅ Approve for Learning"] == True]
-                    for _, row in approved_rows.iterrows():
-                        approved_aliases[row["original_messy_name"]] = row["resolved_master_name"]
+            # 3. AI Results
+            st.subheader("AI Results")
+            if st.session_state.get('llm_decisions'):
+                df_ai = pd.DataFrame([json.loads(d.model_dump_json()) for d in st.session_state.llm_decisions])
+                event_ai = st.dataframe(df_ai, use_container_width=True, selection_mode="single-row", on_select="rerun")
+                show_drilldown(event_ai, df_ai, "original_messy_name")
+            else:
+                st.info("No AI results available.")
+                df_ai = pd.DataFrame()
+
+
+            # Generate Base Excel Data
+            excel_data = []
+            for d in st.session_state.exact_matches:
+                excel_data.append({
+                    "Original Messy Name": d.original_messy_name,
+                    "Resolved Master Name": d.resolved_master_name,
+                    "Resolution Type": "Exact Match",
+                    "Confidence Score": d.confidence_score,
+                    "Reasoning": d.reasoning
+                })
+            for d in st.session_state.auto_rejected:
+                excel_data.append({
+                    "Original Messy Name": d.original_messy_name,
+                    "Resolved Master Name": d.resolved_master_name,
+                    "Resolution Type": "Junk Filter",
+                    "Confidence Score": d.confidence_score,
+                    "Reasoning": d.reasoning
+                })
+            for d in st.session_state.llm_decisions:
+                excel_data.append({
+                    "Original Messy Name": d.original_messy_name,
+                    "Resolved Master Name": d.resolved_master_name,
+                    "Resolution Type": "AI Model",
+                    "Confidence Score": d.confidence_score,
+                    "Reasoning": d.reasoning
+                })
+                
+            df_report = pd.DataFrame(excel_data)
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_report.to_excel(writer, index=False, sheet_name='Resolution Results')
             
-            # Capture current settings
-            current_settings = {
-                "vector_threshold": st.session_state.adv_vector_threshold,
-                "top_k": st.session_state.adv_top_k,
-                "suffix_words": st.session_state.adv_suffix_words,
-                "junk_patterns": st.session_state.adv_junk_patterns,
-                "bank_keywords": st.session_state.adv_bank_keywords,
-                "llm_model": st.session_state.adv_llm_model
-            }
-            
-            run_stats = {
-                "Total Records": len(st.session_state.bl_level_records),
-                "Exact Matches": len(st.session_state.exact_matches),
-                "Auto Rejected": len(st.session_state.auto_rejected),
-                "AI Matches": len(st.session_state.llm_decisions)
-            }
-            
-            # Create updated workspace file
-            updated_workspace_bytes = update_workspace(
-                st.session_state.workspace_bytes, 
-                approved_aliases, 
-                current_settings, 
-                run_stats,
-                active_user=str(st.session_state.master_sheet_name)
-            )
-            
+            # --- HUMAN IN THE LOOP (AI QUEUE) ---
             st.divider()
-            col_d1, col_d2 = st.columns(2)
-            with col_d1:
+            st.subheader("⚠️ AI Review Queue")
+            st.info("Edit the 'Resolved Master Name' if the AI was wrong. Check 'Approve for Learning' to add the rule to your workspace so the AI remembers it next time!")
+            
+            if not df_ai.empty:
+                df_ai_filtered = df_ai[["original_messy_name", "resolved_master_name", "confidence_score", "reasoning", "matched"]]
+                
+                # Split into Needs Review vs High Confidence
+                df_needs_review = df_ai_filtered[df_ai_filtered["confidence_score"] < 95].copy()
+                df_high_conf = df_ai_filtered[df_ai_filtered["confidence_score"] >= 95].copy()
+                
+                # Setup columns for the data editor
+                if not df_needs_review.empty:
+                    df_needs_review.insert(0, "✅ Approve for Learning", False)
+                    st.markdown("**Needs Review (Confidence < 95%)**")
+                    edited_needs_review = st.data_editor(
+                        df_needs_review,
+                        hide_index=True,
+                        disabled=["original_messy_name", "confidence_score", "reasoning", "matched"],
+                        use_container_width=True
+                    )
+                else:
+                    edited_needs_review = pd.DataFrame()
+                    
+                if not df_high_conf.empty:
+                    df_high_conf.insert(0, "✅ Approve for Learning", True)
+                    st.markdown("**High Confidence (Confidence ≥ 95%)**")
+                    edited_high_conf = st.data_editor(
+                        df_high_conf,
+                        hide_index=True,
+                        disabled=["original_messy_name", "confidence_score", "reasoning", "matched"],
+                        use_container_width=True
+                    )
+                else:
+                    edited_high_conf = pd.DataFrame()
+                    
+                # Compile approved aliases
+                approved_aliases = {}
+                for df_edited in [edited_needs_review, edited_high_conf]:
+                    if not df_edited.empty:
+                        approved_rows = df_edited[df_edited["✅ Approve for Learning"] == True]
+                        for _, row in approved_rows.iterrows():
+                            approved_aliases[row["original_messy_name"]] = row["resolved_master_name"]
+                
+                # Capture current settings
+                current_settings = {
+                    "vector_threshold": st.session_state.adv_vector_threshold,
+                    "top_k": st.session_state.adv_top_k,
+                    "suffix_words": st.session_state.adv_suffix_words,
+                    "junk_patterns": st.session_state.adv_junk_patterns,
+                    "bank_keywords": st.session_state.adv_bank_keywords,
+                    "llm_model": st.session_state.adv_llm_model
+                }
+                
+                run_stats = {
+                    "Total Records": len(st.session_state.bl_level_records),
+                    "Exact Matches": len(st.session_state.exact_matches),
+                    "Auto Rejected": len(st.session_state.auto_rejected),
+                    "AI Matches": len(st.session_state.llm_decisions)
+                }
+                
+                # Create updated workspace file
+                updated_workspace_bytes = update_workspace(
+                    st.session_state.workspace_bytes, 
+                    approved_aliases, 
+                    current_settings, 
+                    run_stats,
+                    active_user=str(st.session_state.master_sheet_name)
+                )
+                
+                st.divider()
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    st.download_button(
+                        label="📥 Download Excel Report (Current Run)",
+                        data=buffer.getvalue(),
+                        file_name="resolution_report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                with col_d2:
+                    st.download_button(
+                        label=f"💾 Save & Download Updated Workspace ({len(approved_aliases)} New Aliases)",
+                        data=updated_workspace_bytes,
+                        file_name="Workspace_Updated.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary",
+                        help="Downloads the Portable Brain containing your settings, run history, and the new aliases you approved.",
+                        use_container_width=True
+                    )
+            else:
+                st.info("No AI results to review.")
                 st.download_button(
-                    label="📥 Download Excel Report (Current Run)",
+                    label="📥 Download Excel Report",
                     data=buffer.getvalue(),
                     file_name="resolution_report.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    type="primary"
                 )
-            with col_d2:
-                st.download_button(
-                    label=f"💾 Save & Download Updated Workspace ({len(approved_aliases)} New Aliases)",
-                    data=updated_workspace_bytes,
-                    file_name="Workspace_Updated.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",
-                    help="Downloads the Portable Brain containing your settings, run history, and the new aliases you approved.",
-                    use_container_width=True
-                )
-        else:
-            st.info("No AI results to review.")
-            st.download_button(
-                label="📥 Download Excel Report",
-                data=buffer.getvalue(),
-                file_name="resolution_report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary"
+
+        with res_tab2:
+            st.subheader("📋 Master Account Shipment Reports")
+            st.write("Select the accounts below to view their Bills of Lading and drill down into individual container units.")
+
+            # Build mapping of messy_name -> resolved_master_name
+            messy_to_master = {}
+            for d in st.session_state.exact_matches:
+                if d.resolved_master_name:
+                    messy_to_master[d.original_messy_name] = d.resolved_master_name
+            for d in st.session_state.llm_decisions:
+                if d.matched and d.resolved_master_name:
+                    messy_to_master[d.original_messy_name] = d.resolved_master_name
+            for d in st.session_state.auto_rejected:
+                if d.resolved_master_name:
+                    messy_to_master[d.original_messy_name] = d.resolved_master_name
+
+            # Group records by resolved master account
+            master_groups = {}  # {master_name: {bl_num: [records]}}
+            all_recs = st.session_state.get('raw_records', st.session_state.bl_level_records)
+            for r in all_recs:
+                m_name = messy_to_master.get(r.messy_party_name, "⚠️ Unresolved / Other")
+                if m_name not in master_groups:
+                    master_groups[m_name] = {}
+                bl_val = r.bill_of_lading or "NO_BL"
+                if bl_val not in master_groups[m_name]:
+                    master_groups[m_name][bl_val] = []
+                master_groups[m_name][bl_val].append(r)
+
+            # 1. Account selection table
+            account_rows = []
+            for m_name in sorted(master_groups.keys()):
+                bl_map = master_groups[m_name]
+                tot_containers = sum(len(recs) for recs in bl_map.values())
+                account_rows.append({
+                    "📊 Include": True if m_name != "⚠️ Unresolved / Other" else False,
+                    "Master Account Name": m_name,
+                    "Total BLs": len(bl_map),
+                    "Total Containers": tot_containers
+                })
+            
+            df_acc_sel = pd.DataFrame(account_rows)
+            st.markdown("### 1️⃣ Check Accounts to Include in Report")
+            edited_acc_sel = st.data_editor(
+                df_acc_sel,
+                hide_index=True,
+                disabled=["Master Account Name", "Total BLs", "Total Containers"],
+                use_container_width=True,
+                key="report_acc_selector"
             )
+            
+            selected_accounts = edited_acc_sel[edited_acc_sel["📊 Include"] == True]["Master Account Name"].tolist()
+
+            st.divider()
+            st.markdown("### 2️⃣ BL & Container Units View")
+            if not selected_accounts:
+                st.info("👆 Please check at least one Master Account in the table above to view its BLs and container units.")
+            else:
+                for acc_idx, acc in enumerate(selected_accounts):
+                    bl_map = master_groups[acc]
+                    bl_list = sorted(list(bl_map.keys()))
+                    
+                    with st.container():
+                        st.markdown(f"#### 🏢 **{acc}** (`{len(bl_list)} BLs`, `{sum(len(recs) for recs in bl_map.values())} Containers`)")
+                        st.write("Click checkboxes below to filter containers by Bill of Lading:")
+                        
+                        # Horizontal list style of BL checkboxes
+                        selected_bls_for_acc = []
+                        cols_per_row = 4
+                        for i in range(0, len(bl_list), cols_per_row):
+                            cols = st.columns(cols_per_row)
+                            for j, col in enumerate(cols):
+                                if i + j < len(bl_list):
+                                    bl_num = bl_list[i + j]
+                                    cnt = len(bl_map[bl_num])
+                                    with col:
+                                        if st.checkbox(f"📄 **{bl_num}** ({cnt} units)", key=f"rpt_chk_{acc_idx}_{bl_num}", value=True):
+                                            selected_bls_for_acc.append(bl_num)
+                        
+                        # Show container numbers for selected BLs
+                        if selected_bls_for_acc:
+                            container_rows = []
+                            for bl_num in selected_bls_for_acc:
+                                for r in bl_map[bl_num]:
+                                    container_rows.append({
+                                        "Bill of Lading": bl_num,
+                                        "Container Number": r.container_number,
+                                        "Notify Party": r.notify_party,
+                                        "Consignee Name (Messy)": r.messy_party_name,
+                                        "Role": r.party_role
+                                    })
+                            df_containers = pd.DataFrame(container_rows)
+                            st.dataframe(df_containers, use_container_width=True)
+                        else:
+                            st.caption("No BLs selected for this account.")
+                        st.divider()
+
+                # Export Selected Report
+                export_rows = []
+                for acc in selected_accounts:
+                    for bl_num, recs in master_groups[acc].items():
+                        for r in recs:
+                            export_rows.append({
+                                "Resolved Master Account": acc,
+                                "Bill of Lading": bl_num,
+                                "Container Number": r.container_number,
+                                "Notify Party": r.notify_party,
+                                "Consignee Name (Messy)": r.messy_party_name,
+                                "Role": r.party_role
+                            })
+                if export_rows:
+                    df_export = pd.DataFrame(export_rows)
+                    buf_export = io.BytesIO()
+                    with pd.ExcelWriter(buf_export, engine='openpyxl') as writer:
+                        df_export.to_excel(writer, index=False, sheet_name='Selected Report')
+                    st.download_button(
+                        label=f"📥 Download Selected Accounts Report ({len(export_rows)} total containers)",
+                        data=buf_export.getvalue(),
+                        file_name="selected_accounts_report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary",
+                        use_container_width=True
+                    )
