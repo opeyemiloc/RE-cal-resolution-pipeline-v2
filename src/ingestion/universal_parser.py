@@ -3,6 +3,7 @@ import math
 from typing import List, Union, Optional
 from src.core.models import ShippingRecord
 from src.core.config import config
+from src.resolution.pre_processor import should_reject
 
 def clean_name(name: str, strip_bank: bool) -> str:
     if not isinstance(name, str):
@@ -69,10 +70,14 @@ def parse_user_driven_excel(
         
         # 4. Apply Salvage Logic
         if salvage_notify:
-            # Check if consignee is missing or just junk like "SAME AS NOTIFY"
-            junk_patterns = config["business_logic"]["junk_patterns"]
-            is_empty_or_junk = not final_party_name or final_party_name.upper() in junk_patterns
-            if is_empty_or_junk and notify_clean:
+            # Check if consignee is missing, or classified as junk by should_reject, or starts with bank keywords
+            bank_keywords = config["business_logic"]["bank_keywords"]
+            is_empty_or_junk = (
+                not final_party_name 
+                or should_reject(final_party_name)
+                or any(consignee_raw.upper().startswith(kw) for kw in bank_keywords)
+            )
+            if is_empty_or_junk and notify_clean and not should_reject(notify_clean):
                 final_party_name = notify_clean
                 final_party_role = "Salvaged Consignee"
         
@@ -85,6 +90,7 @@ def parse_user_driven_excel(
             container_number=container,
             bill_of_lading=bl,
             messy_party_name=final_party_name,
+            notify_party=notify_clean if notify_clean else notify_raw,
             party_role=final_party_role,
             port_of_discharge=None,
             eta=None
