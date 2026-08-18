@@ -94,13 +94,24 @@ Ensure you return EXACTLY ONE decision object for every input provided, in the e
                     
         except Exception as e:
             # If the batch completely fails to parse, fail all records in the batch
+            error_msg = str(e)
+            last_attempt = getattr(e, 'last_attempt', None)
+            if last_attempt is not None:
+                try:
+                    underlying_exception = getattr(last_attempt, 'exception', None)
+                    if callable(underlying_exception):
+                        underlying_exception = underlying_exception()
+                    if underlying_exception is not None:
+                        error_msg = f"{str(e)} -> Underlying error: {underlying_exception}"
+                except Exception:
+                    pass
             for candidate in batch:
                 decisions.append(LLMMatchDecision(
                     original_messy_name=candidate.messy_name, 
                     matched=False, 
                     resolved_master_name=None, 
                     confidence_score=0, 
-                    reasoning=f"LLM Batch Error: {str(e)}"
+                    reasoning=f"LLM Batch Error: {error_msg}"
                 ))
             
         # Polite baseline delay between batches
