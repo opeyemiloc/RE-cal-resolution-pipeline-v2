@@ -671,6 +671,9 @@ elif menu == "3. Run Pipeline":
                     continue
                     
                 m_name = messy_to_master.get(r.messy_party_name, "⚠️ Unresolved / Other")
+                if m_name == "⚠️ Unresolved / Other":
+                    continue
+                    
                 if m_name not in master_groups:
                     master_groups[m_name] = {}
                 bl_val = str(r.bill_of_lading).strip()
@@ -720,10 +723,10 @@ elif menu == "3. Run Pipeline":
                             st.session_state[select_all_key] = True
                             
                         def toggle_all(acc_idx_inner, bl_list_inner):
-                            new_state = not st.session_state[f"select_all_{acc_idx_inner}"]
-                            st.session_state[f"select_all_{acc_idx_inner}"] = new_state
+                            # The session state is already updated by the checkbox before this callback runs
+                            current_state = st.session_state[f"select_all_{acc_idx_inner}"]
                             for b in bl_list_inner:
-                                st.session_state[f"rpt_chk_{acc_idx_inner}_{b}"] = new_state
+                                st.session_state[f"rpt_chk_{acc_idx_inner}_{b}"] = current_state
 
                         st.checkbox("✅ Select All / Unselect All", key=select_all_key, on_change=toggle_all, args=(acc_idx, bl_list))
                         
