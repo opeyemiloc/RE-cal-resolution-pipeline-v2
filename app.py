@@ -32,6 +32,12 @@ if 'workspace_name' not in st.session_state:
 if 'workspace_aliases' not in st.session_state:
     st.session_state.workspace_aliases = {}
     
+if 'vessel_name' not in st.session_state:
+    st.session_state.vessel_name = ""
+if 'eta' not in st.session_state:
+    import datetime
+    st.session_state.eta = datetime.date.today()
+    
 # Config state
 if 'sheet_name' not in st.session_state: st.session_state.sheet_name = 0
 if 'header_row_index' not in st.session_state: st.session_state.header_row_index = 0
@@ -167,6 +173,14 @@ if menu == "1. File Uploads":
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             help="Download a clean workspace file to start saving aliases and settings."
         )
+
+    st.divider()
+    st.subheader("4. Shipment Details (Used for Export)")
+    col_sd1, col_sd2 = st.columns(2)
+    with col_sd1:
+        st.session_state.vessel_name = st.text_input("Vessel Name", value=st.session_state.vessel_name)
+    with col_sd2:
+        st.session_state.eta = st.date_input("ETA", value=st.session_state.eta)
 
 
 # ==========================================
@@ -652,10 +666,14 @@ elif menu == "3. Run Pipeline":
             master_groups = {}  # {master_name: {bl_num: [records]}}
             all_recs = st.session_state.get('raw_records', st.session_state.bl_level_records)
             for r in all_recs:
+                # Filter out blank/null BLs
+                if not r.bill_of_lading or str(r.bill_of_lading).strip() == "" or str(r.bill_of_lading).lower() == "nan":
+                    continue
+                    
                 m_name = messy_to_master.get(r.messy_party_name, "⚠️ Unresolved / Other")
                 if m_name not in master_groups:
                     master_groups[m_name] = {}
-                bl_val = r.bill_of_lading or "NO_BL"
+                bl_val = str(r.bill_of_lading).strip()
                 if bl_val not in master_groups[m_name]:
                     master_groups[m_name][bl_val] = []
                 master_groups[m_name][bl_val].append(r)
@@ -697,6 +715,18 @@ elif menu == "3. Run Pipeline":
                         st.markdown(f"#### 🏢 **{acc}** (`{len(bl_list)} BLs`, `{sum(len(recs) for recs in bl_map.values())} Containers`)")
                         st.write("Click checkboxes below to filter containers by Bill of Lading:")
                         
+                        select_all_key = f"select_all_{acc_idx}"
+                        if select_all_key not in st.session_state:
+                            st.session_state[select_all_key] = True
+                            
+                        def toggle_all(acc_idx_inner, bl_list_inner):
+                            new_state = not st.session_state[f"select_all_{acc_idx_inner}"]
+                            st.session_state[f"select_all_{acc_idx_inner}"] = new_state
+                            for b in bl_list_inner:
+                                st.session_state[f"rpt_chk_{acc_idx_inner}_{b}"] = new_state
+
+                        st.checkbox("✅ Select All / Unselect All", key=select_all_key, on_change=toggle_all, args=(acc_idx, bl_list))
+                        
                         # Horizontal list style of BL checkboxes
                         selected_bls_for_acc = []
                         cols_per_row = 4
@@ -706,8 +736,11 @@ elif menu == "3. Run Pipeline":
                                 if i + j < len(bl_list):
                                     bl_num = bl_list[i + j]
                                     cnt = len(bl_map[bl_num])
+                                    chk_key = f"rpt_chk_{acc_idx}_{bl_num}"
+                                    if chk_key not in st.session_state:
+                                        st.session_state[chk_key] = st.session_state[select_all_key]
                                     with col:
-                                        if st.checkbox(f"📄 **{bl_num}** ({cnt} units)", key=f"rpt_chk_{acc_idx}_{bl_num}", value=True):
+                                        if st.checkbox(f"📄 **{bl_num}** ({cnt} units)", key=chk_key):
                                             selected_bls_for_acc.append(bl_num)
                         
                         # Show container numbers for selected BLs
@@ -730,17 +763,29 @@ elif menu == "3. Run Pipeline":
 
                 # Export Selected Report
                 export_rows = []
-                for acc in selected_accounts:
+                
+                eta_str = st.session_state.eta.strftime("%Y-%m-%d") if hasattr(st.session_state.eta, 'strftime') else str(st.session_state.eta)
+                vessel_name_safe = str(st.session_state.vessel_name).strip()
+                if not vessel_name_safe:
+                    vessel_name_safe = "UNKNOWN_VESSEL"
+                    
+                file_name_out = f"CAL_{vessel_name_safe.replace(' ', '_')}_{eta_str}.xlsx"
+
+                for acc_idx, acc in enumerate(selected_accounts):
                     for bl_num, recs in master_groups[acc].items():
-                        for r in recs:
-                            export_rows.append({
-                                "Resolved Master Account": acc,
-                                "Bill of Lading": bl_num,
-                                "Container Number": r.container_number,
-                                "Notify Party": r.notify_party,
-                                "Consignee Name (Messy)": r.messy_party_name,
-                                "Role": r.party_role
-                            })
+                        chk_key = f"rpt_chk_{acc_idx}_{bl_num}"
+                        if st.session_state.get(chk_key, False):
+                            for r in recs:
+                                export_rows.append({
+                                    "Resolved Master Account": acc,
+                                    "Bill of Lading": bl_num,
+                                    "Container Number": r.container_number,
+                                    "Vessel Name": st.session_state.vessel_name,
+                                    "ETA": eta_str,
+                                    "Notify Party": r.notify_party,
+                                    "Consignee Name (Messy)": r.messy_party_name,
+                                    "Role": r.party_role
+                                })
                 if export_rows:
                     df_export = pd.DataFrame(export_rows)
                     buf_export = io.BytesIO()
@@ -749,7 +794,7 @@ elif menu == "3. Run Pipeline":
                     st.download_button(
                         label=f"📥 Download Selected Accounts Report ({len(export_rows)} total containers)",
                         data=buf_export.getvalue(),
-                        file_name="selected_accounts_report.xlsx",
+                        file_name=file_name_out,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         type="primary",
                         use_container_width=True
