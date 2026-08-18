@@ -682,19 +682,30 @@ elif menu == "3. Run Pipeline":
                 master_groups[m_name][bl_val].append(r)
 
             # 1. Account selection table
+            if "select_all_accounts" not in st.session_state:
+                st.session_state.select_all_accounts = True
+                
+            def toggle_all_accounts():
+                # Streamlit updates the select_all_accounts state before calling this
+                # We need to force data_editor to re-evaluate by deleting its cached edits
+                if "report_acc_selector" in st.session_state:
+                    del st.session_state["report_acc_selector"]
+                    
+            st.markdown("### 1️⃣ Check Accounts to Include in Report")
+            st.checkbox("✅ Select All / Unselect All Accounts", key="select_all_accounts", on_change=toggle_all_accounts)
+
             account_rows = []
             for m_name in sorted(master_groups.keys()):
                 bl_map = master_groups[m_name]
                 tot_containers = sum(len(recs) for recs in bl_map.values())
                 account_rows.append({
-                    "📊 Include": True if m_name != "⚠️ Unresolved / Other" else False,
+                    "📊 Include": st.session_state.select_all_accounts,
                     "Master Account Name": m_name,
                     "Total BLs": len(bl_map),
                     "Total Containers": tot_containers
                 })
             
             df_acc_sel = pd.DataFrame(account_rows)
-            st.markdown("### 1️⃣ Check Accounts to Include in Report")
             edited_acc_sel = st.data_editor(
                 df_acc_sel,
                 hide_index=True,
