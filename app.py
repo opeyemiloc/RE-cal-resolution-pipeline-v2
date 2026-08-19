@@ -705,7 +705,7 @@ elif menu == "3. Run Pipeline":
                     "Total Containers": tot_containers
                 })
             
-            df_acc_sel = pd.DataFrame(account_rows)
+            df_acc_sel = pd.DataFrame(account_rows, columns=["📊 Include", "Master Account Name", "Total BLs", "Total Containers"])
             edited_acc_sel = st.data_editor(
                 df_acc_sel,
                 hide_index=True,
