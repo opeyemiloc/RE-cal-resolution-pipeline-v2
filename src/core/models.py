@@ -18,6 +18,8 @@ class ShippingRecord(BaseModel):
     party_role: str = Field(description="Either 'Consignee', 'Notify Party', 'Salvaged Consignee', or 'Unknown'")
     port_of_discharge: Optional[str] = Field(default=None, description="The destination port where cargo is unloaded")
     eta: Optional[str] = Field(default=None, description="Estimated Time of Arrival at the discharge port")
+    size: Optional[str] = Field(default=None, description="Container size")
+    teu: Optional[str] = Field(default=None, description="Container TEU")
 
 # ==========================================
 # 2. THE LLM RESOLUTION MODELS
