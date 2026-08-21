@@ -51,6 +51,8 @@ def parse_user_driven_excel(
     container_col = column_mapping.get("container_number")
     consignee_col = column_mapping.get("consignee_name")
     notify_col = column_mapping.get("notify_party")
+    size_col = column_mapping.get("size")
+    teu_col = column_mapping.get("teu")
     # product_col = column_mapping.get("product_description") # Ignored for now as not in ShippingRecord model
     
     for _, row in df.iterrows():
@@ -61,6 +63,8 @@ def parse_user_driven_excel(
         
         # Extract Optional Fields
         notify_raw = str(row[notify_col]).strip() if notify_col and notify_col in row and pd.notna(row[notify_col]) else ""
+        size_raw = str(row[size_col]).strip() if size_col and size_col in row and pd.notna(row[size_col]) else None
+        teu_raw = str(row[teu_col]).strip() if teu_col and teu_col in row and pd.notna(row[teu_col]) else None
         
         consignee_clean = clean_name(consignee_raw, strip_bank_prefixes)
         notify_clean = clean_name(notify_raw, strip_bank_prefixes)
@@ -93,7 +97,9 @@ def parse_user_driven_excel(
             notify_party=notify_clean if notify_clean else notify_raw,
             party_role=final_party_role,
             port_of_discharge=None,
-            eta=None
+            eta=None,
+            size=size_raw,
+            teu=teu_raw
         )
         records.append(record)
         

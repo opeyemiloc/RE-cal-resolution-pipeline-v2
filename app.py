@@ -47,6 +47,8 @@ if 'container_col' not in st.session_state: st.session_state.container_col = ""
 if 'consignee_col' not in st.session_state: st.session_state.consignee_col = ""
 if 'notify_col' not in st.session_state: st.session_state.notify_col = ""
 if 'product_col' not in st.session_state: st.session_state.product_col = ""
+if 'size_col' not in st.session_state: st.session_state.size_col = ""
+if 'teu_col' not in st.session_state: st.session_state.teu_col = ""
 if 'salvage_notify' not in st.session_state: st.session_state.salvage_notify = True
 if 'strip_bank_prefixes' not in st.session_state: st.session_state.strip_bank_prefixes = True
 
@@ -265,11 +267,17 @@ elif menu == "2. Data Configuration":
             with col_m3:
                 st.session_state.consignee_col = st.selectbox("🔴 Consignee Name (Required)", [""] + columns, index=get_idx([""] + columns, st.session_state.consignee_col))
                 
-            col_m4, col_m5 = st.columns(2)
+            col_m4, col_m5, col_m6 = st.columns(3)
             with col_m4:
                 st.session_state.notify_col = st.selectbox("🟡 Notify Party (Optional)", ["None"] + columns, index=get_idx(["None"] + columns, st.session_state.notify_col))
             with col_m5:
                 st.session_state.product_col = st.selectbox("🟡 Product/Cargo (Optional)", ["None"] + columns, index=get_idx(["None"] + columns, st.session_state.product_col))
+            with col_m6:
+                st.session_state.size_col = st.selectbox("🟡 Size (Optional)", ["None"] + columns, index=get_idx(["None"] + columns, st.session_state.size_col))
+                
+            col_m7, col_m8, _ = st.columns(3)
+            with col_m7:
+                st.session_state.teu_col = st.selectbox("🟡 TEU (Optional)", ["None"] + columns, index=get_idx(["None"] + columns, st.session_state.teu_col))
         except Exception as e:
             st.error(f"Error reading preview: {e}")
 
@@ -393,7 +401,9 @@ elif menu == "3. Run Pipeline":
                         "container_number": st.session_state.container_col,
                         "consignee_name": st.session_state.consignee_col,
                         "notify_party": st.session_state.notify_col if st.session_state.notify_col != "None" else None,
-                        "product_description": st.session_state.product_col if st.session_state.product_col != "None" else None
+                        "product_description": st.session_state.product_col if st.session_state.product_col != "None" else None,
+                        "size": st.session_state.size_col if st.session_state.size_col != "None" else None,
+                        "teu": st.session_state.teu_col if st.session_state.teu_col != "None" else None
                     }
                     
                     raw_records = parse_user_driven_excel(
@@ -798,7 +808,9 @@ elif menu == "3. Run Pipeline":
                                     "ETA": eta_str,
                                     "Notify Party": r.notify_party,
                                     "Consignee Name (Messy)": r.messy_party_name,
-                                    "Role": r.party_role
+                                    "Role": r.party_role,
+                                    "Size": getattr(r, 'size', ''),
+                                    "Teu": getattr(r, 'teu', '')
                                 })
                 if export_rows:
                     df_export = pd.DataFrame(export_rows)
