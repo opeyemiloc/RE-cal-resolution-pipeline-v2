@@ -1,4 +1,5 @@
 import json
+import difflib
 from typing import List, Tuple, Dict, Set
 from src.core.models import ShippingRecord, LLMMatchDecision
 from src.resolution.normalizer import normalize_name
@@ -8,6 +9,7 @@ def strip_trailing_suffixes(name: str) -> str:
     """
     Removes common corporate suffixes ONLY from the end of the brand name.
     Protects words if they are part of the core brand (e.g., 'INTERNATIONAL BREWERIES').
+    Also strips trailing 'S' for singularization.
     """
     suffix_words = set(config['business_logic']['suffix_words'])
     if not name:
@@ -16,12 +18,15 @@ def strip_trailing_suffixes(name: str) -> str:
     tokens = name.split()
     
     # Keep popping words off the end as long as they are in our suffix list.
-    # We require len(tokens) > 1 so we don't accidentally strip a company 
-    # whose entire name is literally just a suffix word.
     while len(tokens) > 1 and tokens[-1] in suffix_words:
         tokens.pop()
         
-    return " ".join(tokens)
+    core_name = " ".join(tokens)
+    # Singularize: if length > 3 and ends with 'S', strip it
+    if len(core_name) > 3 and core_name.endswith('S'):
+        core_name = core_name[:-1]
+        
+    return core_name
 
 def process_exact_matches(records: List[ShippingRecord], master_accounts_path: str, custom_aliases: Dict[str, str] = None) -> Tuple[List[LLMMatchDecision], List[ShippingRecord]]:
     """
@@ -63,6 +68,21 @@ def process_exact_matches(records: List[ShippingRecord], master_accounts_path: s
         if core in core_master_lookup:
             del core_master_lookup[core]
             
+    # 3. Fingerprint Lookup (Pass 3 prep)
+    fingerprint_master_lookup: Dict[str, str] = {}
+    ambiguous_fingerprints: Set[str] = set()
+    for clean_acc, orig_acc in normalized_master_lookup.items():
+        fg = clean_acc.replace(" ", "")
+        if len(fg) > 7:
+            if fg in fingerprint_master_lookup:
+                ambiguous_fingerprints.add(fg)
+            elif fg not in ambiguous_fingerprints:
+                fingerprint_master_lookup[fg] = orig_acc
+                
+    for fg in ambiguous_fingerprints:
+        if fg in fingerprint_master_lookup:
+            del fingerprint_master_lookup[fg]
+            
     master_accounts_set: Set[str] = set(master_accounts)
     exact_matches: List[LLMMatchDecision] = []
     unmatched_records: List[ShippingRecord] = []
@@ -99,6 +119,53 @@ def process_exact_matches(records: List[ShippingRecord], master_accounts_path: s
                 reasoning="Pass 2: Exact match on core brand (trailing suffixes ignored)."
             ))
         else:
-            unmatched_records.append(record)
+            # Let's try Pass 3, 4, 5
+            matched = False
+            messy_fg = clean_messy.replace(" ", "")
+            
+            # Pass 3: Whitespace Fingerprint Match
+            if len(messy_fg) > 7 and messy_fg in fingerprint_master_lookup:
+                exact_matches.append(LLMMatchDecision(
+                    original_messy_name=record.messy_party_name,
+                    matched=True,
+                    resolved_master_name=fingerprint_master_lookup[messy_fg],
+                    confidence_score=100,
+                    reasoning="Pass 3: Exact match on whitespace-stripped fingerprint."
+                ))
+                matched = True
+            
+            if not matched:
+                # Iterate for Pass 4 and 5
+                messy_tokens = set(clean_messy.split())
+                for clean_master, orig_master in normalized_master_lookup.items():
+                    # Pass 4: Token Subset Match
+                    master_tokens = set(clean_master.split())
+                    shared = messy_tokens.intersection(master_tokens)
+                    if len(shared) >= 2 and (messy_tokens.issubset(master_tokens) or master_tokens.issubset(messy_tokens)):
+                        exact_matches.append(LLMMatchDecision(
+                            original_messy_name=record.messy_party_name,
+                            matched=True,
+                            resolved_master_name=orig_master,
+                            confidence_score=100,
+                            reasoning="Pass 4: Token subset match (shared >= 2 words)."
+                        ))
+                        matched = True
+                        break
+                    
+                    # Pass 5: Fuzzy Typo Match (0 vs O, transposed letters)
+                    similarity = difflib.SequenceMatcher(None, clean_messy, clean_master).ratio()
+                    if similarity >= 0.92:
+                        exact_matches.append(LLMMatchDecision(
+                            original_messy_name=record.messy_party_name,
+                            matched=True,
+                            resolved_master_name=orig_master,
+                            confidence_score=98,
+                            reasoning=f"Pass 5: High similarity fuzzy typo match ({similarity*100:.1f}%)."
+                        ))
+                        matched = True
+                        break
+            
+            if not matched:
+                unmatched_records.append(record)
             
     return exact_matches, unmatched_records
