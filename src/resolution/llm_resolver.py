@@ -106,12 +106,13 @@ Ensure you return EXACTLY ONE decision object for every input provided, in the e
                 except Exception:
                     pass
             for candidate in batch:
+                fallback_master = candidate.candidate_master_names[0] if candidate.candidate_master_names else None
                 decisions.append(LLMMatchDecision(
                     original_messy_name=candidate.messy_name, 
-                    matched=False, 
-                    resolved_master_name=None, 
+                    matched=True, 
+                    resolved_master_name=fallback_master, 
                     confidence_score=0, 
-                    reasoning=f"LLM Batch Error: {error_msg}"
+                    reasoning=f"LLM Batch Error: {error_msg}. Sent to review."
                 ))
             
         # Polite baseline delay between batches
