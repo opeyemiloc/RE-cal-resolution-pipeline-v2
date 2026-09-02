@@ -68,16 +68,22 @@ def process_exact_matches(records: List[ShippingRecord], master_accounts_path: s
         if core in core_master_lookup:
             del core_master_lookup[core]
             
-    # 3. Fingerprint Lookup (Pass 3 prep)
+    # 3. Fingerprint Lookup (Pass 3 prep) using Core Brand Names
     fingerprint_master_lookup: Dict[str, str] = {}
     ambiguous_fingerprints: Set[str] = set()
-    for clean_acc, orig_acc in normalized_master_lookup.items():
-        fg = clean_acc.replace(" ", "")
+    
+    for acc in master_accounts:
+        clean_acc = normalize_name(acc)
+        core_acc = strip_trailing_suffixes(clean_acc)
+        if not core_acc:
+            continue
+            
+        fg = core_acc.replace(" ", "")
         if len(fg) > 7:
             if fg in fingerprint_master_lookup:
                 ambiguous_fingerprints.add(fg)
             elif fg not in ambiguous_fingerprints:
-                fingerprint_master_lookup[fg] = orig_acc
+                fingerprint_master_lookup[fg] = acc
                 
     for fg in ambiguous_fingerprints:
         if fg in fingerprint_master_lookup:
@@ -121,7 +127,7 @@ def process_exact_matches(records: List[ShippingRecord], master_accounts_path: s
         else:
             # Let's try Pass 3, 4, 5
             matched = False
-            messy_fg = clean_messy.replace(" ", "")
+            messy_fg = core_messy.replace(" ", "")
             
             # Pass 3: Whitespace Fingerprint Match
             if len(messy_fg) > 7 and messy_fg in fingerprint_master_lookup:
