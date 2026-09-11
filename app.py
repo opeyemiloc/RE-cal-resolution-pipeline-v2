@@ -7,6 +7,7 @@ from src.ingestion.universal_parser import parse_user_driven_excel
 from src.ingestion.parsers.master_parser import ingest_master_list_excel
 from src.pipeline import run_resolution_pipeline
 from src.core.config import config
+from src.core.models import ShippingRecord
 from src.workspace import create_empty_workspace_template, load_workspace, update_workspace, create_master_template, create_manifest_template
 
 # --- PAGE SETUP ---
