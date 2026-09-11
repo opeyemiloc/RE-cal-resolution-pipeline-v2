@@ -69,33 +69,15 @@ def parse_user_driven_excel(
         consignee_clean = clean_name(consignee_raw, strip_bank_prefixes)
         notify_clean = clean_name(notify_raw, strip_bank_prefixes)
         
-        final_party_name = consignee_clean
-        final_party_role = "Consignee"
-        
-        # 4. Apply Salvage Logic
-        if salvage_notify:
-            # Check if consignee is missing, or classified as junk by should_reject, or starts with bank keywords
-            bank_keywords = config["business_logic"]["bank_keywords"]
-            is_empty_or_junk = (
-                not final_party_name 
-                or should_reject(final_party_name)
-                or any(consignee_raw.upper().startswith(kw) for kw in bank_keywords)
-            )
-            if is_empty_or_junk and notify_clean and not should_reject(notify_clean):
-                final_party_name = notify_clean
-                final_party_role = "Salvaged Consignee"
-        
-        if not final_party_name:
-            final_party_role = "Unknown"
-            
+        # We store the raw/clean values directly. Phase 2 Role Hierarchy will resolve this later.
         record = ShippingRecord(
-            shipping_line="User_Defined", # We can leave this generic or add it to mapping
+            shipping_line="User_Defined", 
             vessel_name=None,
             container_number=container,
             bill_of_lading=bl,
-            messy_party_name=final_party_name,
-            notify_party=notify_clean if notify_clean else notify_raw,
-            party_role=final_party_role,
+            messy_party_name=consignee_clean, # Base mapping for Consignee
+            notify_party=notify_clean,        # Base mapping for Notify Party
+            party_role="Unknown",             # Will be assigned during Phase 2
             port_of_discharge=None,
             eta=None,
             size=size_raw,

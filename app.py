@@ -416,8 +416,23 @@ elif menu == "3. Run Pipeline":
                         strip_bank_prefixes=st.session_state.strip_bank_prefixes
                     )
                     
+                    # Extract unique BL level records for reporting base
                     unique_bls = {r.bill_of_lading: r for r in raw_records if r.bill_of_lading}.values()
                     bl_level_records = list(unique_bls)
+
+                    # --- PHASE 1: DUAL-FIELD IDENTIFICATION ---
+                    unique_names = set()
+                    for r in raw_records:
+                        if r.messy_party_name: unique_names.add(r.messy_party_name)
+                        if r.notify_party: unique_names.add(r.notify_party)
+                        
+                    dummy_records = []
+                    for name in unique_names:
+                        dummy_records.append(ShippingRecord(
+                            shipping_line="System",
+                            messy_party_name=name,
+                            party_role="Unknown"
+                        ))
 
                     # --- EXECUTE EXTRACTED PIPELINE ---
                     ui_placeholder = st.empty()
@@ -442,15 +457,47 @@ elif menu == "3. Run Pipeline":
                         st.session_state.workspace_aliases, _, _ = load_workspace(st.session_state.workspace_bytes, target_user=str(st.session_state.master_sheet_name))
 
                     results = run_resolution_pipeline(
-                        records=bl_level_records, 
+                        records=dummy_records, 
                         master_json_path=master_json_path,
                         custom_aliases=st.session_state.workspace_aliases,
                         ui_callback=pipeline_update_hook
                     )
                     
+                    # --- PHASE 2: ROLE HIERARCHY & RECONCILIATION ---
+                    # Build lookup dict of Name -> Resolved Master
+                    name_to_master = {}
+                    for d in results["exact_matches"]:
+                        name_to_master[d.original_messy_name] = d.resolved_master_name
+                    for d in results["llm_decisions"]:
+                        if d.matched:
+                            name_to_master[d.original_messy_name] = d.resolved_master_name
+                            
+                    bank_keywords = config["business_logic"]["bank_keywords"]
+                    
+                    for r in raw_records:
+                        c_match = name_to_master.get(r.messy_party_name)
+                        n_match = name_to_master.get(r.notify_party)
+                        
+                        is_bank_consignee = not r.messy_party_name or any(r.messy_party_name.upper().startswith(kw) for kw in bank_keywords)
+                        
+                        # Scenario A: Both match same master, OR Scenario B: Only Consignee matches
+                        if c_match and (not n_match or c_match == n_match):
+                            r.party_role = "Consignee"
+                            # For the UI mapping logic to work seamlessly, we ensure the 'messy_party_name' is the one that matched
+                        # Scenario C: Only Notify Party matches
+                        elif n_match and not c_match:
+                            r.messy_party_name = r.notify_party # Swap so the UI associates this row with the matched notify party name
+                            if is_bank_consignee:
+                                r.party_role = "Salvaged Consignee" # Sub-case 1
+                            else:
+                                r.party_role = "Notify Party" # Sub-case 2
+                        # Scenario D: Conflict / Unresolved
+                        else:
+                            r.party_role = "Unknown/Conflict"
+                    
                     # Store results in session_state
                     st.session_state.raw_records = raw_records
-                    st.session_state.bl_level_records = bl_level_records
+                    st.session_state.bl_level_records = raw_records # Use raw_records so all containers are represented properly
                     st.session_state.exact_matches = results["exact_matches"]
                     st.session_state.auto_rejected = results["auto_rejected"]
                     st.session_state.candidates = results["candidates"]
