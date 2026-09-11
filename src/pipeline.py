@@ -30,15 +30,31 @@ def run_resolution_pipeline(
         
     exact_matches, unmatched_records = process_exact_matches(records, master_json_path, custom_aliases)
 
-    # 2. Pre-Processor (Junk Filter)
+    from src.resolution.normalizer import normalize_name
+    from src.resolution.exact_matcher import strip_trailing_suffixes
+    from src.core.models import LLMMatchDecision
+    
+    # 2. Pre-Processor (Junk Filter & Short Acronym Filter)
     to_vector_search = []
     auto_rejected = []
+    llm_decisions = []
     for record in unmatched_records:
         if should_reject(record.messy_party_name):
             auto_rejected.append(create_rejection_decision(record.messy_party_name))
         else:
-            to_vector_search.append(record)
-
+            core_messy = strip_trailing_suffixes(normalize_name(record.messy_party_name))
+            if len(core_messy.split()) == 1:
+                # Option A: Send straight to manual AI Review Queue (as an LLMMatchDecision)
+                llm_decisions.append(LLMMatchDecision(
+                    original_messy_name=record.messy_party_name,
+                    matched=False,
+                    resolved_master_name=None,
+                    confidence_score=0,
+                    reasoning="Bypassed AI: Short acronyms require 100% exact match."
+                ))
+            else:
+                to_vector_search.append(record)
+                
     # 3. Vector Search (Candidate Generation)
     candidates, _ = find_top_candidates(to_vector_search, master_json_path)
 
@@ -51,12 +67,11 @@ def run_resolution_pipeline(
         })
 
     # 4. LLM Resolution
-    llm_decisions = []
     if candidates:
         if ui_callback: 
             ui_callback("llm_start", {"count": len(candidates)})
             
-        llm_decisions = resolve_candidates(candidates)
+        llm_decisions.extend(resolve_candidates(candidates))
 
     # 5. Combine Results
     final_decisions = exact_matches + auto_rejected + llm_decisions

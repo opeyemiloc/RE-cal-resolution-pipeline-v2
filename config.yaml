@@ -99,6 +99,11 @@ business_logic:
     - "FTZ"
     - "MGT"
     - "MGMT"
+    - "AUTO"
+    - "AUTOS"
+    - "MOTORS"
+    - "MOTOR"
+    - "AUTOMOBILE"
   junk_patterns:
     - "TO ORDER"
     - "NULL"

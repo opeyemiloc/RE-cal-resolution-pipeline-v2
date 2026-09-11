@@ -141,35 +141,39 @@ def process_exact_matches(records: List[ShippingRecord], master_accounts_path: s
                 matched = True
             
             if not matched:
-                # Iterate for Pass 4 and 5
-                messy_tokens = set(clean_messy.split())
-                for clean_master, orig_master in normalized_master_lookup.items():
-                    # Pass 4: Token Subset Match
-                    master_tokens = set(clean_master.split())
-                    shared = messy_tokens.intersection(master_tokens)
-                    if len(shared) >= 2 and (messy_tokens.issubset(master_tokens) or master_tokens.issubset(messy_tokens)):
-                        exact_matches.append(LLMMatchDecision(
-                            original_messy_name=record.messy_party_name,
-                            matched=True,
-                            resolved_master_name=orig_master,
-                            confidence_score=100,
-                            reasoning="Pass 4: Token subset match (shared >= 2 words)."
-                        ))
-                        matched = True
-                        break
-                    
-                    # Pass 5: Fuzzy Typo Match (0 vs O, transposed letters)
-                    similarity = difflib.SequenceMatcher(None, clean_messy, clean_master).ratio()
-                    if similarity >= 0.92:
-                        exact_matches.append(LLMMatchDecision(
-                            original_messy_name=record.messy_party_name,
-                            matched=True,
-                            resolved_master_name=orig_master,
-                            confidence_score=98,
-                            reasoning=f"Pass 5: High similarity fuzzy typo match ({similarity*100:.1f}%)."
-                        ))
-                        matched = True
-                        break
+                if len(core_messy.split()) == 1:
+                    # Single word cores must exactly match. Skip Pass 4 and 5.
+                    pass
+                else:
+                    # Iterate for Pass 4 and 5
+                    messy_tokens = set(clean_messy.split())
+                    for clean_master, orig_master in normalized_master_lookup.items():
+                        # Pass 4: Token Subset Match
+                        master_tokens = set(clean_master.split())
+                        shared = messy_tokens.intersection(master_tokens)
+                        if len(shared) >= 2 and (messy_tokens.issubset(master_tokens) or master_tokens.issubset(messy_tokens)):
+                            exact_matches.append(LLMMatchDecision(
+                                original_messy_name=record.messy_party_name,
+                                matched=True,
+                                resolved_master_name=orig_master,
+                                confidence_score=100,
+                                reasoning="Pass 4: Token subset match (shared >= 2 words)."
+                            ))
+                            matched = True
+                            break
+                        
+                        # Pass 5: Fuzzy Typo Match (0 vs O, transposed letters)
+                        similarity = difflib.SequenceMatcher(None, clean_messy, clean_master).ratio()
+                        if similarity >= 0.92:
+                            exact_matches.append(LLMMatchDecision(
+                                original_messy_name=record.messy_party_name,
+                                matched=True,
+                                resolved_master_name=orig_master,
+                                confidence_score=98,
+                                reasoning=f"Pass 5: High similarity fuzzy typo match ({similarity*100:.1f}%)."
+                            ))
+                            matched = True
+                            break
             
             if not matched:
                 unmatched_records.append(record)
