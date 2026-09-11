@@ -37,26 +37,34 @@ def run_resolution_pipeline(
     # 2. Pre-Processor (Junk Filter & Short Acronym Filter)
     to_vector_search = []
     auto_rejected = []
-    llm_decisions = []
+    short_acronym_names = set()
+    
     for record in unmatched_records:
         if should_reject(record.messy_party_name):
             auto_rejected.append(create_rejection_decision(record.messy_party_name))
         else:
             core_messy = strip_trailing_suffixes(normalize_name(record.messy_party_name))
             if len(core_messy.split()) == 1:
-                # Option A: Send straight to manual AI Review Queue (as an LLMMatchDecision)
-                llm_decisions.append(LLMMatchDecision(
-                    original_messy_name=record.messy_party_name,
-                    matched=False,
-                    resolved_master_name=None,
-                    confidence_score=0,
-                    reasoning="Bypassed AI: Short acronyms require 100% exact match."
-                ))
-            else:
-                to_vector_search.append(record)
+                short_acronym_names.add(record.messy_party_name)
+            to_vector_search.append(record)
                 
     # 3. Vector Search (Candidate Generation)
     candidates, _ = find_top_candidates(to_vector_search, master_json_path)
+    
+    # 3.5 Intercept Short Acronyms
+    llm_decisions = []
+    candidates_for_llm = []
+    for c in candidates:
+        if c.messy_name in short_acronym_names:
+            llm_decisions.append(LLMMatchDecision(
+                original_messy_name=c.messy_name,
+                matched=False,
+                resolved_master_name=None,
+                confidence_score=0,
+                reasoning="Bypassed AI: Short acronyms require 100% exact match."
+            ))
+        else:
+            candidates_for_llm.append(c)
 
     # UI Hook before expensive LLM call
     if ui_callback: 
@@ -67,11 +75,11 @@ def run_resolution_pipeline(
         })
 
     # 4. LLM Resolution
-    if candidates:
+    if candidates_for_llm:
         if ui_callback: 
-            ui_callback("llm_start", {"count": len(candidates)})
+            ui_callback("llm_start", {"count": len(candidates_for_llm)})
             
-        llm_decisions.extend(resolve_candidates(candidates))
+        llm_decisions.extend(resolve_candidates(candidates_for_llm))
 
     # 5. Combine Results
     final_decisions = exact_matches + auto_rejected + llm_decisions

@@ -609,7 +609,17 @@ elif menu == "3. Run Pipeline":
             st.info("Edit the 'Resolved Master Name' if the AI was wrong. Check 'Approve for Learning' to add the rule to your workspace so the AI remembers it next time!")
             
             if not df_ai.empty:
-                df_ai_filtered = df_ai[["original_messy_name", "resolved_master_name", "confidence_score", "reasoning", "matched"]]
+                df_ai_filtered = df_ai[["original_messy_name", "resolved_master_name", "confidence_score", "reasoning", "matched"]].copy()
+                
+                # Add Top Candidates column
+                if st.session_state.get('candidates'):
+                    candidate_map = {c.messy_name: ", ".join(c.candidate_master_names) for c in st.session_state.candidates}
+                    df_ai_filtered["top_candidates"] = df_ai_filtered["original_messy_name"].map(candidate_map).fillna("N/A")
+                else:
+                    df_ai_filtered["top_candidates"] = "N/A"
+                
+                # Reorder columns to put top_candidates next to resolved_master_name
+                df_ai_filtered = df_ai_filtered[["original_messy_name", "top_candidates", "resolved_master_name", "confidence_score", "reasoning", "matched"]]
                 
                 # Split into Needs Review vs High Confidence
                 df_needs_review = df_ai_filtered[df_ai_filtered["confidence_score"] < 95].copy()
@@ -622,7 +632,7 @@ elif menu == "3. Run Pipeline":
                     edited_needs_review = st.data_editor(
                         df_needs_review,
                         hide_index=True,
-                        disabled=["original_messy_name", "confidence_score", "reasoning", "matched"],
+                        disabled=["original_messy_name", "top_candidates", "confidence_score", "reasoning", "matched"],
                         use_container_width=True
                     )
                 else:
@@ -634,7 +644,7 @@ elif menu == "3. Run Pipeline":
                     edited_high_conf = st.data_editor(
                         df_high_conf,
                         hide_index=True,
-                        disabled=["original_messy_name", "confidence_score", "reasoning", "matched"],
+                        disabled=["original_messy_name", "top_candidates", "confidence_score", "reasoning", "matched"],
                         use_container_width=True
                     )
                 else:
