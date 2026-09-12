@@ -14,9 +14,19 @@ def reconcile_roles(
         c_match = name_to_master.get(r.messy_party_name)
         n_match = name_to_master.get(r.notify_party)
         
-        is_bank_consignee = not r.messy_party_name or any(
-            r.messy_party_name.upper().startswith(kw) for kw in bank_keywords
-        )
+        import re
+        
+        is_bank_consignee = False
+        if not r.messy_party_name:
+            is_bank_consignee = True
+        else:
+            messy_upper = r.messy_party_name.upper()
+            # 1. Starts with any keyword (e.g. "TO THE ORDER OF")
+            if any(messy_upper.startswith(kw) for kw in bank_keywords):
+                is_bank_consignee = True
+            # 2. Or contains "BANK" or "FINANCE" as an isolated word
+            elif any(kw in re.split(r'\W+', messy_upper) for kw in ["BANK", "FINANCE"]):
+                is_bank_consignee = True
         
         if c_match and (not n_match or c_match == n_match):
             r.party_role = "Consignee"
