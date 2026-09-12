@@ -473,28 +473,8 @@ elif menu == "3. Run Pipeline":
                         if d.matched:
                             name_to_master[d.original_messy_name] = d.resolved_master_name
                             
-                    bank_keywords = config["business_logic"]["bank_keywords"]
-                    
-                    for r in raw_records:
-                        c_match = name_to_master.get(r.messy_party_name)
-                        n_match = name_to_master.get(r.notify_party)
-                        
-                        is_bank_consignee = not r.messy_party_name or any(r.messy_party_name.upper().startswith(kw) for kw in bank_keywords)
-                        
-                        # Scenario A: Both match same master, OR Scenario B: Only Consignee matches
-                        if c_match and (not n_match or c_match == n_match):
-                            r.party_role = "Consignee"
-                            # For the UI mapping logic to work seamlessly, we ensure the 'messy_party_name' is the one that matched
-                        # Scenario C: Only Notify Party matches
-                        elif n_match and not c_match:
-                            r.messy_party_name = r.notify_party # Swap so the UI associates this row with the matched notify party name
-                            if is_bank_consignee:
-                                r.party_role = "Salvaged Consignee" # Sub-case 1
-                            else:
-                                r.party_role = "Notify Party" # Sub-case 2
-                        # Scenario D: Conflict / Unresolved
-                        else:
-                            r.party_role = "Unknown/Conflict"
+                    from src.resolution.role_reconciler import reconcile_roles
+                    reconcile_roles(raw_records, name_to_master, config["business_logic"]["bank_keywords"])
                     
                     # Store results in session_state
                     st.session_state.raw_records = raw_records
@@ -609,7 +589,17 @@ elif menu == "3. Run Pipeline":
             st.info("Edit the 'Resolved Master Name' if the AI was wrong. Check 'Approve for Learning' to add the rule to your workspace so the AI remembers it next time!")
             
             if not df_ai.empty:
-                df_ai_filtered = df_ai[["original_messy_name", "resolved_master_name", "confidence_score", "reasoning", "matched"]]
+                df_ai_filtered = df_ai[["original_messy_name", "resolved_master_name", "confidence_score", "reasoning", "matched"]].copy()
+                
+                # Add Top Candidates column
+                if st.session_state.get('candidates'):
+                    candidate_map = {c.messy_name: ", ".join(c.candidate_master_names) for c in st.session_state.candidates}
+                    df_ai_filtered["top_candidates"] = df_ai_filtered["original_messy_name"].map(candidate_map).fillna("N/A")
+                else:
+                    df_ai_filtered["top_candidates"] = "N/A"
+                
+                # Reorder columns to put top_candidates next to resolved_master_name
+                df_ai_filtered = df_ai_filtered[["original_messy_name", "top_candidates", "resolved_master_name", "confidence_score", "reasoning", "matched"]]
                 
                 # Split into Needs Review vs High Confidence
                 df_needs_review = df_ai_filtered[df_ai_filtered["confidence_score"] < 95].copy()
@@ -622,7 +612,7 @@ elif menu == "3. Run Pipeline":
                     edited_needs_review = st.data_editor(
                         df_needs_review,
                         hide_index=True,
-                        disabled=["original_messy_name", "confidence_score", "reasoning", "matched"],
+                        disabled=["original_messy_name", "top_candidates", "confidence_score", "reasoning", "matched"],
                         use_container_width=True
                     )
                 else:
@@ -634,7 +624,7 @@ elif menu == "3. Run Pipeline":
                     edited_high_conf = st.data_editor(
                         df_high_conf,
                         hide_index=True,
-                        disabled=["original_messy_name", "confidence_score", "reasoning", "matched"],
+                        disabled=["original_messy_name", "top_candidates", "confidence_score", "reasoning", "matched"],
                         use_container_width=True
                     )
                 else:
@@ -869,6 +859,64 @@ elif menu == "3. Run Pipeline":
                         label=f"📥 Download Selected Accounts Report ({len(export_rows)} total containers)",
                         data=buf_export.getvalue(),
                         file_name=file_name_out,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary",
+                        use_container_width=True
+                    )
+                    
+        with res_tab3:
+            st.subheader("🕵️ Third-Party Consignee Edge Cases")
+            st.write("These records matched your Notify Party, but the Consignee column contains a legitimate company. The sales team should investigate these before claiming them.")
+
+            # Group third-party edge cases
+            edge_groups = {}
+            for r in all_recs:
+                if getattr(r, "party_role", "") == "Third-Party Consignee":
+                    m_name = messy_to_master.get(r.messy_party_name, "⚠️ Unresolved / Other")
+                    if m_name == "⚠️ Unresolved / Other":
+                        continue
+                    if m_name not in edge_groups:
+                        edge_groups[m_name] = []
+                    edge_groups[m_name].append(r)
+            
+            if not edge_groups:
+                st.info("No Third-Party Consignee cases found in this run.")
+            else:
+                export_edge_rows = []
+                for acc, recs in edge_groups.items():
+                    with st.expander(f"🏢 {acc} ({len(recs)} containers)"):
+                        df_acc = pd.DataFrame([{
+                            "Bill of Lading": r.bill_of_lading,
+                            "Container Number": r.container_number,
+                            "Consignee Name": r.messy_party_name,
+                            "Notify Party": r.notify_party
+                        } for r in recs])
+                        st.dataframe(df_acc, use_container_width=True)
+                        
+                        for r in recs:
+                            export_edge_rows.append({
+                                "Resolved Master Account": acc,
+                                "Bill of Lading": r.bill_of_lading,
+                                "Container Number": r.container_number,
+                                "Vessel Name": vessel_name_safe,
+                                "ETA": eta_str,
+                                "Notify Party": r.notify_party,
+                                "Consignee Name": r.messy_party_name,
+                                "Role": r.party_role,
+                                "Size": getattr(r, "size", ""),
+                                "Teu": getattr(r, "teu", "")
+                            })
+                
+                if export_edge_rows:
+                    df_edge_export = pd.DataFrame(export_edge_rows)
+                    buf_edge_export = io.BytesIO()
+                    with pd.ExcelWriter(buf_edge_export, engine="openpyxl") as writer:
+                        df_edge_export.to_excel(writer, index=False, sheet_name="Third-Party Edge Cases")
+                    
+                    st.download_button(
+                        label=f"📥 Download Third-Party Investigation Report ({len(export_edge_rows)} containers)",
+                        data=buf_edge_export.getvalue(),
+                        file_name=f"CAL_Investigation_{vessel_name_safe}_{eta_str}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         type="primary",
                         use_container_width=True
