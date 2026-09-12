@@ -501,7 +501,7 @@ elif menu == "3. Run Pipeline":
         col3.metric("🔴 Auto-Rejected (Junk)", len(st.session_state.auto_rejected))
         col4.metric("🤖 AI Matches", len(st.session_state.llm_decisions))
         st.divider()
-        res_tab1, res_tab2 = st.tabs(["👀 Resolution Preview & AI Queue", "📈 Interactive Reporting Tab"])
+        res_tab1, res_tab2, res_tab3 = st.tabs(["👀 Resolution Preview & AI Queue", "📈 Interactive Reporting Tab", "🕵️ Third-Party Consignee (Edge Cases)"])
         
         with res_tab1:
             st.subheader("🔍 Click a row in any table below to view its original manifest records")
@@ -693,6 +693,25 @@ elif menu == "3. Run Pipeline":
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary"
                 )
+                
+            # 4. Third-Party Consignee Edge Cases Preview
+            st.divider()
+            st.subheader("⚠️ Third-Party Consignee (Legit Consignee Found)")
+            st.info("These records matched your Notify Party, but the Consignee is a legitimate company (not a bank). They are piped to Tab 3 for investigation.")
+            
+            all_raw = st.session_state.get('raw_records', [])
+            third_party_records = [r for r in all_raw if getattr(r, 'party_role', '') == "Third-Party Consignee"]
+            
+            if third_party_records:
+                tp_data = [{
+                    "Bill of Lading": r.bill_of_lading,
+                    "Container Number": r.container_number,
+                    "Consignee Name": r.messy_party_name,
+                    "Notify Party": r.notify_party
+                } for r in third_party_records]
+                st.dataframe(pd.DataFrame(tp_data), use_container_width=True)
+            else:
+                st.success("No Third-Party Consignee edge cases found in this run.")
 
         with res_tab2:
             st.subheader("📋 Master Account Shipment Reports")
@@ -714,6 +733,10 @@ elif menu == "3. Run Pipeline":
             master_groups = {}  # {master_name: {bl_num: [records]}}
             all_recs = st.session_state.get('raw_records', st.session_state.bl_level_records)
             for r in all_recs:
+                # Exclude edge cases piped to Tab 3
+                if getattr(r, 'party_role', '') == "Third-Party Consignee":
+                    continue
+                    
                 # Filter out blank/null BLs
                 if not r.bill_of_lading or str(r.bill_of_lading).strip() == "" or str(r.bill_of_lading).lower() == "nan":
                     continue
