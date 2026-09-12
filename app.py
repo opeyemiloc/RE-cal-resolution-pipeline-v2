@@ -895,7 +895,7 @@ elif menu == "3. Run Pipeline":
             edge_groups = {}
             for r in all_recs:
                 if getattr(r, "party_role", "") == "Third-Party Consignee":
-                    m_name = messy_to_master.get(r.messy_party_name, "⚠️ Unresolved / Other")
+                    m_name = messy_to_master.get(r.notify_party, "⚠️ Unresolved / Other")
                     if m_name == "⚠️ Unresolved / Other":
                         continue
                     if m_name not in edge_groups:

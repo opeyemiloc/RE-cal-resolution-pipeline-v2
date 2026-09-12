@@ -21,8 +21,8 @@ def reconcile_roles(
         if c_match and (not n_match or c_match == n_match):
             r.party_role = "Consignee"
         elif n_match and not c_match:
-            r.messy_party_name = r.notify_party 
             if is_bank_consignee:
+                r.messy_party_name = r.notify_party 
                 r.party_role = "Salvaged Consignee"
             else:
                 r.party_role = "Third-Party Consignee"
