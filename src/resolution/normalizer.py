@@ -30,6 +30,7 @@ def normalize_name(name: str) -> str:
     
     # 2. Standardize symbols and replace punctuation (commas, periods, hyphens, slashes) with space
     n = n.replace("&", " AND ")
+    n = n.replace("'", "")
     n = n.replace(".", " ").replace(",", " ").replace("-", " ").replace("/", " ")
     
     # 3. Expand common abbreviations (using word boundaries \b so we don't ruin actual words)
