@@ -58,9 +58,8 @@ def find_top_candidates(records: List[ShippingRecord], master_accounts_path: str
             "top_3_distances": [round(d, 4) for d in all_distances]
         })
         
-        if not passed_threshold:
-            continue
-            
+        # Removed threshold trapdoor (No-Drop Funnel)
+        
         candidates.append(ResolutionCandidate(
             messy_name=record.messy_party_name, # keep original for output tracking
             candidate_master_names=top_names
