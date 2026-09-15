@@ -31,7 +31,6 @@ def run_resolution_pipeline(
     exact_matches, unmatched_records = process_exact_matches(records, master_json_path, custom_aliases)
 
     from src.resolution.normalizer import normalize_name
-    from src.resolution.exact_matcher import strip_trailing_suffixes
     from src.core.models import LLMMatchDecision
     
     # 2. Pre-Processor (Junk Filter & Short Acronym Filter)
@@ -43,8 +42,8 @@ def run_resolution_pipeline(
         if should_reject(record.messy_party_name):
             auto_rejected.append(create_rejection_decision(record.messy_party_name))
         else:
-            core_messy = strip_trailing_suffixes(normalize_name(record.messy_party_name))
-            if len(core_messy.split()) == 1:
+            clean_messy = normalize_name(record.messy_party_name)
+            if len(clean_messy.split()) == 1:
                 short_acronym_names.add(record.messy_party_name)
             to_vector_search.append(record)
                 

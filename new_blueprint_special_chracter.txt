@@ -1,0 +1,25 @@
+The Mental Model: Punctuation in business names performs two entirely different functions: it either contracts a single word (like an apostrophe), or it bridges two separate words (like a hyphen). Therefore, treating all punctuation with the same "replace with space" rule will always break one of these structures.
+
+The Universal Normalization Funnel
+To make text cleaning bulletproof, your normalization module must run incoming strings through a strict, five-stage sequential funnel:
+
+1. Semantic Expansion
+Before touching any punctuation, convert universally understood symbols into their word equivalents.
+
+Action: Translate the ampersand (&) into the word AND.
+
+Without this: A & B becomes A B, which loses the semantic glue and might fail token subset checks against A AND B.
+
+2. The Erasure Tier (Contractions)
+Target the specific punctuation marks used to shorten or combine single words.
+
+Action: Completely delete apostrophes, single quotes, and backticks. Do not replace them with spaces.
+
+With this feature: INT'L fuses seamlessly into INTL, ensuring it gets caught by your abbreviation dictionary. NIG'A becomes NIGA.
+
+3. The Substitution Tier (Bridges)
+Handle every other non-alphanumeric character in existence.
+
+Action: Apply a universal filter that flags anything that is not a letter from A-Z or a number from 0-9, and converts it into a single space.
+
+With this feature: You never have to manually hardcode brackets, slashes, asterisks, or hyphens again. HORLA-MAT splits safely into HORLA MAT. PRODECO (PROPERTY) becomes PRODECO PROPERTY.
